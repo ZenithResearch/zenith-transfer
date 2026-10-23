@@ -1,0 +1,563 @@
+/* ============================================================
+   ZenithUI — Design Tokens
+   Source of truth for all colour, spacing, radius, and type.
+   Import once at project root. Never import inside components.
+   ============================================================ */
+
+/* ── Primitives ─────────────────────────────────────────────
+   Raw palette values. Components NEVER reference these directly —
+   all component values come from semantic tokens below.
+   Each family runs the full 50–950 scale.
+   ─────────────────────────────────────────────────────────── */
+:root {
+  /* Brand — aquamarine (50) → deep teal (950) */
+  --brand-50:   #d1faf0;
+  --brand-100:  #b4f7e6;
+  --brand-200:  #9bfbe3;
+  --brand-300:  #58efc9;
+  --brand-400:  #1de7b4;
+  --brand-500:  #02b286;
+  --brand-600:  #018c6a;
+  --brand-700:  #185647;
+  --brand-800:  #193830;
+  --brand-900:  #202b27;
+  --brand-950:  #131a18;
+  --brand-muted: #55a882;   /* accessible mid-tone for muted text on dark */
+
+  /* Flesh — warm peach → rich brown */
+  --flesh-50:  #fff8f4;
+  --flesh-100: #fff5ef;
+  --flesh-200: #ffe5d3;
+  --flesh-300: #ffd4b8;
+  --flesh-400: #FFC19D;
+  --flesh-500: #f59558;
+  --flesh-600: #e07830;
+  --flesh-700: #d47845;
+  --flesh-800: #9e5528;
+  --flesh-900: #7a3a18;
+  --flesh-950: #4a220d;
+
+  /* Turquoise — blue-green bridge between Aqua and system signal */
+  --turquoise-50:  #f0fdfa;
+  --turquoise-100: #ccfbf1;
+  --turquoise-200: #99f6e4;
+  --turquoise-300: #5eead4;
+  --turquoise-400: #2dd4bf;
+  --turquoise-500: #14b8a6;
+  --turquoise-600: #0d9488;
+  --turquoise-700: #0f766e;
+  --turquoise-800: #115e59;
+  --turquoise-900: #134e4a;
+  --turquoise-950: #042f2e;
+
+  /* Cerulean — cool informational signal distinct from Aqua command */
+  --cerulean-50:  #f0f9ff;
+  --cerulean-100: #e0f2fe;
+  --cerulean-200: #bae6fd;
+  --cerulean-300: #7dd3fc;
+  --cerulean-400: #38bdf8;
+  --cerulean-500: #0ea5e9;
+  --cerulean-600: #0284c7;
+  --cerulean-700: #0369a1;
+  --cerulean-800: #075985;
+  --cerulean-900: #0c4a6e;
+  --cerulean-950: #082f49;
+
+  /* Emerald — regal verification accent from print/dark-mode logo exploration */
+  --emerald-50:  #effcf6;
+  --emerald-100: #d8f6eb;
+  --emerald-200: #adebd3;
+  --emerald-300: #76d9b5;
+  --emerald-400: #35bf8e;
+  --emerald-500: #008457;
+  --emerald-600: #00764f;
+  --emerald-700: #055f43;
+  --emerald-800: #0b4a37;
+  --emerald-900: #11352b;
+  --emerald-950: #131a18;
+
+  /* Error — blush (50) → deep crimson (950) */
+  --error-50:  #fff5f6;
+  --error-100: #fff1f2;
+  --error-200: #fecdd3;
+  --error-300: #fda4af;
+  --error-400: #fb7185;
+  --error-500: #f43f5e;
+  --error-600: #e11d48;
+  --error-700: #be123c;
+  --error-800: #881337;
+  --error-900: #4c0519;
+  --error-950: #27020d;
+
+  /* Success — mint (50) → forest (950) */
+  --success-50:  #f5fef7;
+  --success-100: #f0fdf4;
+  --success-200: #dcfce7;
+  --success-300: #86efac;
+  --success-400: #4ade80;
+  --success-500: #22c55e;
+  --success-600: #16a34a;
+  --success-700: #15803d;
+  --success-800: #166534;
+  --success-900: #14532d;
+  --success-950: #052e16;
+
+  /* Warning — cream (50) → burnt umber (950) */
+  --warning-50:  #fefef0;
+  --warning-100: #fefce8;
+  --warning-200: #fef9c3;
+  --warning-300: #fde047;
+  --warning-400: #facc15;
+  --warning-500: #eab308;
+  --warning-600: #ca8a04;
+  --warning-700: #a16207;
+  --warning-800: #854d0e;
+  --warning-900: #713f12;
+  --warning-950: #422006;
+
+  /* Neutral — teal-tinted gray scale */
+  --neutral-50:  #f8faf9;
+  --neutral-100: #f0f4f2;
+  --neutral-200: #dce4e0;
+  --neutral-300: #bfcec8;
+  --neutral-400: #9aafaa;
+  --neutral-500: #738f89;
+  --neutral-600: #567069;
+  --neutral-700: #40534e;
+  --neutral-800: #2c3a36;
+  --neutral-900: #1c2622;
+  --neutral-950: #111918;
+}
+
+/* ── Semantic Tokens — Dark (default) ───────────────────────
+   Semantic tokens reference primitives by role, not by value.
+   Components consume ONLY these — never the primitive layer.
+   Current component-facing layer uses Daisy-style role aliases.
+   Legacy brand/warm/base tokens remain as migration compatibility.
+   ─────────────────────────────────────────────────────────── */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Base — structural layer */
+  --color-base:                  #131a18;
+  --color-base-subtle:           #202b27;
+  --color-base-raised:           #193830;
+  --color-base-content:          #D1FAF0;
+  --color-base-muted:            #55a882;   /* 6.1:1 on base, 5.1:1 on base-subtle */
+  --color-base-border:           rgba(155, 251, 227, 0.12);
+  --color-base-border-strong:    rgba(155, 251, 227, 0.24);
+
+  /* Daisy-style base aliases */
+  --color-base-100:              var(--color-base);
+  --color-base-200:              var(--color-base-subtle);
+  --color-base-300:              var(--color-base-raised);
+  --color-nav:                   var(--color-base-200);
+  --color-symbol:                var(--neutral-100);
+  --color-symbol-muted:          var(--neutral-400);
+  --color-symbol-soft:           rgba(248, 250, 249, 0.08);
+
+  /* Brand — teal/aquamarine action color */
+  --color-brand:                 #58efc9;
+  --color-brand-content:         #131a18;   /* text on brand fill */
+  --color-brand-hover:           #1de7b4;
+  --color-brand-subtle:          rgba(88, 239, 201, 0.08);
+  --color-brand-muted:           rgba(88, 239, 201, 0.18);
+  --color-brand-border:          rgba(88, 239, 201, 0.20);
+  --color-brand-text:            #58efc9;   /* brand as readable text on base surfaces */
+
+  /* Semantic aliases — primary/action */
+  --color-primary:                var(--brand-950);
+  --color-primary-content:        var(--brand-200);
+  --color-primary-hover:          var(--brand-900);
+  --color-primary-border:         var(--color-brand-border);
+
+  /* Semantic aliases — accent */
+  --color-accent:                 var(--brand-200);
+  --color-accent-content:         var(--brand-950);
+  --color-accent-hover:           var(--brand-300);
+
+  /* Warm — flesh/human-consequence actions */
+  --color-warm:                  #FFC19D;
+  --color-warm-content:          #0D1A16;   /* text on warm fill */
+  --color-warm-hover:            #e07830;
+  --color-warm-subtle:           rgba(255, 193, 157, 0.10);
+  --color-warm-muted:            rgba(255, 193, 157, 0.20);
+  --color-warm-border:           rgba(255, 193, 157, 0.22);
+
+  /* Semantic aliases — secondary */
+  --color-secondary:              var(--flesh-400);
+  --color-secondary-content:      var(--flesh-950);
+  --color-secondary-hover:        var(--flesh-600);
+  --color-secondary-border:       var(--color-warm-border);
+
+  /* Semantic aliases — neutral/disabled */
+  --color-neutral:                var(--neutral-800);
+  --color-neutral-content:        var(--brand-50);
+  --color-neutral-hover:          var(--neutral-700);
+  --color-neutral-placeholder:    var(--color-base-muted);
+  --color-disabled:               var(--color-base-subtle);
+  --color-disabled-content:       var(--color-base-muted);
+
+  /* Error */
+  --color-error:                 #fda4af;
+  --color-error-content:         #131a18;
+  --color-error-hover:           var(--error-400);
+  --color-error-subtle:          rgba(253, 164, 175, 0.10);
+  --color-error-muted:           rgba(253, 164, 175, 0.18);
+  --color-error-border:          rgba(253, 164, 175, 0.22);
+
+  /* Info */
+  --color-info:                  var(--brand-200);
+  --color-info-content:          var(--brand-950);
+
+  /* Success */
+  --color-success:               #86efac;
+  --color-success-content:       #131a18;
+  --color-success-subtle:        rgba(134, 239, 172, 0.10);
+  --color-success-muted:         rgba(134, 239, 172, 0.18);
+  --color-success-border:        rgba(134, 239, 172, 0.22);
+
+  /* Warning */
+  --color-warning:               #fde047;
+  --color-warning-content:       #131a18;
+  --color-warning-subtle:        rgba(253, 224, 71, 0.10);
+  --color-warning-muted:         rgba(253, 224, 71, 0.18);
+  --color-warning-border:        rgba(253, 224, 71, 0.22);
+
+  /* Interaction */
+  --color-focus-ring:            #58efc9;
+
+  /* Shadows */
+  --shadow-surface:              0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-elevated:             0 4px 16px rgba(0, 0, 0, 0.5);
+
+  /* Glass surfaces */
+  --color-glass-bg:              rgba(32, 43, 39, 0.72);
+  --color-glass-border:          rgba(155, 251, 227, 0.14);
+  --glass-blur:                  12px;
+  --glass-saturation:            1.5;
+
+  /* Motion */
+  --transition-base:             0.15s ease;
+  --transition-slow:             0.25s ease;
+}
+
+/* ── Semantic Tokens — Light ────────────────────────────────
+   ─────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --color-base:                  #FFFFFF;
+  --color-base-subtle:           #F2FCF9;
+  --color-base-raised:           #E8F8F2;
+  --color-base-content:          #0D1A16;
+  --color-base-muted:            #2d6b52;   /* 5.6:1 on white, 5.3:1 on base-subtle */
+  --color-base-border:           #C8E8DF;
+  --color-base-border-strong:    #9BFBE3;
+
+  --color-base-100:              var(--color-base);
+  --color-base-200:              var(--color-base-subtle);
+  --color-base-300:              var(--color-base-raised);
+  --color-nav:                   var(--color-base-200);
+  --color-symbol:                var(--neutral-950);
+  --color-symbol-muted:          var(--neutral-600);
+  --color-symbol-soft:           rgba(13, 26, 22, 0.06);
+
+  --color-brand:                 #58efc9;
+  --color-brand-content:         #0D1A16;
+  --color-brand-hover:           #1de7b4;
+  --color-brand-subtle:          rgba(88, 239, 201, 0.12);
+  --color-brand-muted:           rgba(88, 239, 201, 0.22);
+  --color-brand-border:          rgba(88, 239, 201, 0.35);
+  --color-brand-text:            #0d7251;   /* 7:1 on white */
+
+  --color-primary:                var(--brand-300);
+  --color-primary-content:        var(--brand-950);
+  --color-primary-hover:          var(--brand-400);
+  --color-primary-border:         var(--color-brand-border);
+
+  --color-accent:                 var(--brand-700);
+  --color-accent-content:         var(--neutral-50);
+  --color-accent-hover:           var(--brand-800);
+
+  --color-warm:                  #FFC19D;
+  --color-warm-content:          #0D1A16;
+  --color-warm-hover:            #e07830;
+  --color-warm-subtle:           rgba(255, 193, 157, 0.12);
+  --color-warm-muted:            rgba(255, 193, 157, 0.25);
+  --color-warm-border:           rgba(255, 193, 157, 0.35);
+
+  --color-secondary:              var(--flesh-400);
+  --color-secondary-content:      var(--flesh-950);
+  --color-secondary-hover:        var(--flesh-600);
+  --color-secondary-border:       var(--color-warm-border);
+
+  --color-neutral:                var(--neutral-100);
+  --color-neutral-content:        var(--neutral-950);
+  --color-neutral-hover:          var(--neutral-200);
+  --color-neutral-placeholder:    var(--color-base-muted);
+  --color-disabled:               var(--color-base-raised);
+  --color-disabled-content:       var(--neutral-500);
+
+  --color-error:                 #e11d48;
+  --color-error-content:         #FFFFFF;
+  --color-error-hover:           var(--error-700);
+  --color-error-subtle:          rgba(225, 29, 72, 0.08);
+  --color-error-muted:           rgba(225, 29, 72, 0.14);
+  --color-error-border:          rgba(225, 29, 72, 0.22);
+
+  --color-info:                  var(--brand-700);
+  --color-info-content:          var(--neutral-50);
+
+  --color-success:               #15803d;
+  --color-success-content:       #FFFFFF;
+  --color-success-subtle:        rgba(22, 163, 74, 0.08);
+  --color-success-muted:         rgba(22, 163, 74, 0.14);
+  --color-success-border:        rgba(22, 163, 74, 0.22);
+
+  --color-warning:               #ca8a04;
+  --color-warning-content:       #0D1A16;
+  --color-warning-subtle:        rgba(202, 138, 4, 0.08);
+  --color-warning-muted:         rgba(202, 138, 4, 0.14);
+  --color-warning-border:        rgba(202, 138, 4, 0.22);
+
+  --color-focus-ring:            #58efc9;
+
+  --shadow-surface:              0 1px 2px rgba(13, 26, 22, 0.08);
+  --shadow-elevated:             0 4px 12px rgba(13, 26, 22, 0.12);
+
+  --color-glass-bg:              rgba(232, 248, 242, 0.75);
+  --color-glass-border:          rgba(88, 239, 201, 0.30);
+  --glass-blur:                  12px;
+  --glass-saturation:            1.3;
+
+  --transition-base:             0.15s ease;
+  --transition-slow:             0.25s ease;
+}
+
+/* ── Semantic Tokens — Aqua ─────────────────────────────────
+   Terminal hero. Aquamarine field with dark teal surfaces.
+   ─────────────────────────────────────────────────────────── */
+[data-theme="aqua"] {
+  color-scheme: light;
+
+  --color-base:                  #9BFBE3;
+  --color-base-subtle:           rgba(255, 255, 255, 0.44);
+  --color-base-raised:           rgba(255, 255, 255, 0.62);
+  --color-base-content:          #0D1A16;
+  --color-base-muted:            rgba(13, 26, 22, 0.75);  /* 7:1+ on #9BFBE3 */
+  --color-base-border:           rgba(13, 26, 22, 0.18);
+  --color-base-border-strong:    rgba(13, 26, 22, 0.34);
+
+  --color-base-100:              var(--color-base);
+  --color-base-200:              var(--color-base-subtle);
+  --color-base-300:              var(--color-base-raised);
+  --color-nav:                   rgba(13, 26, 22, 0.12);
+  --color-symbol:                #FFFFFF;
+  --color-symbol-muted:          rgba(255, 255, 255, 0.72);
+  --color-symbol-soft:           rgba(255, 255, 255, 0.08);
+
+  --color-brand:                 #0D1A16;
+  --color-brand-content:         #9BFBE3;
+  --color-brand-hover:           #131a18;
+  --color-brand-subtle:          rgba(13, 26, 22, 0.08);
+  --color-brand-muted:           rgba(13, 26, 22, 0.14);
+  --color-brand-border:          rgba(13, 26, 22, 0.22);
+  --color-brand-text:            #0D1A16;
+
+  --color-primary:                var(--brand-950);
+  --color-primary-content:        var(--brand-200);
+  --color-primary-hover:          var(--brand-900);
+  --color-primary-border:         var(--color-brand-border);
+
+  --color-accent:                 var(--brand-700);
+  --color-accent-content:         var(--brand-50);
+  --color-accent-hover:           var(--brand-800);
+
+  --color-warm:                  #FFC19D;
+  --color-warm-content:          #0D1A16;
+  --color-warm-hover:            #e07830;
+  --color-warm-subtle:           rgba(255, 193, 157, 0.12);
+  --color-warm-muted:            rgba(255, 193, 157, 0.22);
+  --color-warm-border:           rgba(255, 193, 157, 0.28);
+
+  --color-secondary:              var(--flesh-400);
+  --color-secondary-content:      var(--flesh-950);
+  --color-secondary-hover:        var(--flesh-600);
+  --color-secondary-border:       var(--color-warm-border);
+
+  --color-neutral:                rgba(13, 26, 22, 0.08);
+  --color-neutral-content:        var(--brand-950);
+  --color-neutral-hover:          rgba(13, 26, 22, 0.14);
+  --color-neutral-placeholder:    var(--color-base-muted);
+  --color-disabled:               rgba(13, 26, 22, 0.07);
+  --color-disabled-content:       rgba(13, 26, 22, 0.55);
+
+  --color-error:                 #7f1d1d;
+  --color-error-content:         #FFFFFF;
+  --color-error-hover:           var(--error-800);
+  --color-error-subtle:          rgba(127, 29, 29, 0.10);
+  --color-error-muted:           rgba(127, 29, 29, 0.18);
+  --color-error-border:          rgba(127, 29, 29, 0.22);
+
+  --color-info:                  var(--cerulean-900);
+  --color-info-content:          var(--cerulean-100);
+
+  --color-success:               #14532d;
+  --color-success-content:       #FFFFFF;
+  --color-success-subtle:        rgba(20, 83, 45, 0.10);
+  --color-success-muted:         rgba(20, 83, 45, 0.18);
+  --color-success-border:        rgba(20, 83, 45, 0.22);
+
+  --color-warning:               var(--warning-300);
+  --color-warning-content:       var(--brand-950);
+  --color-warning-subtle:        rgba(113, 63, 18, 0.10);
+  --color-warning-muted:         rgba(113, 63, 18, 0.18);
+  --color-warning-border:        rgba(113, 63, 18, 0.38);
+
+  --color-focus-ring:            #0D1A16;
+
+  --shadow-surface:              0 1px 1px rgba(13, 26, 22, 0.08),
+                                 0 10px 24px rgba(13, 26, 22, 0.10);
+  --shadow-elevated:             0 1px 1px rgba(13, 26, 22, 0.10),
+                                 0 16px 40px rgba(13, 26, 22, 0.14);
+
+  --color-glass-bg:              rgba(255, 255, 255, 0.48);
+  --color-glass-border:          rgba(13, 26, 22, 0.18);
+  --glass-blur:                  16px;
+  --glass-saturation:            1.25;
+
+  --transition-base:             0.15s ease;
+  --transition-slow:             0.25s ease;
+}
+
+/* ── Spacing ────────────────────────────────────────────────
+   4px base grid. All spacing is a multiple of 4.
+   ─────────────────────────────────────────────────────────── */
+:root {
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-24: 96px;
+}
+
+/* ── Border Radius ──────────────────────────────────────────
+   ─────────────────────────────────────────────────────────── */
+:root {
+  --radius-sm:   4px;      /* tags, badges, inline elements */
+  --radius:      6px;      /* inputs, buttons */
+  --radius-md:   8px;      /* cards, panels */
+  --radius-lg:   12px;     /* dialogs, sheets, modals */
+  --radius-full: 9999px;   /* pills, avatar rings */
+}
+
+/* ── Breakpoints ────────────────────────────────────────────
+   Tailwind-standard. CSS custom properties cannot be used
+   directly in @media queries — use these as reference values
+   in documentation and JS where needed.
+   ─────────────────────────────────────────────────────────── */
+:root {
+  --breakpoint-sm:  640px;
+  --breakpoint-md:  768px;
+  --breakpoint-lg:  1024px;
+  --breakpoint-xl:  1280px;
+  --breakpoint-2xl: 1536px;
+
+  /* Grid system */
+  --grid-cols-sm:     8;
+  --grid-cols-md:     8;
+  --grid-cols-lg:     12;
+  --grid-cols-xl:     12;
+  --grid-cols-2xl:    12;
+
+  --grid-gutter-sm:   24px;
+  --grid-gutter-md:   24px;
+  --grid-gutter-lg:   24px;
+  --grid-gutter-xl:   32px;
+  --grid-gutter-2xl:  32px;
+
+  --grid-margin-sm:   24px;
+  --grid-margin-md:   24px;
+  --grid-margin-lg:   32px;
+  --grid-margin-xl:   48px;
+  --grid-margin-2xl:  48px;
+
+  --content-max-width: 1440px;
+}
+
+/* ── Typography ─────────────────────────────────────────────
+   Two layers — primitive families and semantic use-case tokens.
+   Components reference semantic tokens only, never primitives.
+
+   PRIMITIVE FAMILIES
+     --font-mono:       ABC Whyte Mono (technical)
+     --font-body:       ABC Diatype (corporate)
+     --font-sans:       Inter (warm alternative)
+     --font-editorial:  Cormorant Garamond upright
+     --font-accent:     Cormorant Garamond italic 400
+     --font-code:       Space Mono
+
+   SEMANTIC TOKENS — use-case named, reference primitives
+     --font-technical          Navigation, headings, section markers, command text → var(--font-mono)
+     --font-corporate          Forms, badges, operational prose, brand narrative   → var(--font-body)
+     --font-editorial-body     Editorial paragraphs             → var(--font-editorial)
+     --font-editorial-quote    Pull quotes                      → var(--font-editorial)
+     --font-editorial-display  Editorial headlines              → var(--font-editorial)
+     --font-accent / --font-code  already use-case specific
+
+   ABC Diatype woff2 files: /public/fonts/, Rolodex repo, RAIZ repo.
+   ─────────────────────────────────────────────────────────── */
+:root {
+  /* Primitive families */
+  --font-mono:       'ABC Whyte Mono', 'Space Mono', 'Courier New', monospace;
+  --font-body:       'ABC Diatype', system-ui, sans-serif;
+  --font-sans:       'Inter', system-ui, -apple-system, sans-serif;
+  --font-editorial:  'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+  --font-accent:     'Cormorant Garamond', Georgia, serif;   /* use with italic 400 */
+  --font-code:       'Space Mono', 'Courier New', monospace;
+
+  /* Semantic use-case tokens */
+  --font-technical:          var(--font-mono);
+  --font-corporate:          var(--font-body);
+  --font-editorial-body:     var(--font-editorial);
+  --font-editorial-quote:    var(--font-editorial);
+  --font-editorial-display:  var(--font-editorial);
+
+  --text-hero:       96px;
+  --text-subtitle:   72px;
+  --text-h1:         60px;
+  --text-h2:         48px;
+  --text-h3:         36px;
+  --text-h4:         30px;
+  --text-h5:         24px;
+  --text-subheading: 24px;
+  --text-body-lg:    18px;
+  --text-body:       16px;
+  --text-body-sm:    14px;
+  --text-label:      12px;
+  --text-code:       16px;
+
+  --leading-tight:  1.25;
+  --leading-normal: 1.5;
+  --leading-loose:  1.65;
+
+  --tracking-normal: 0em;
+  --tracking-label:  0.08em;
+}
+
+/* ── Global Reduced Motion ──────────────────────────────────
+   ─────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,115 @@
+{
+  "schema": "zenith.local-resource-v1.vectors",
+  "cases": [
+    {
+      "name": "local-monitor-without-wallet",
+      "accepted": true,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"http://127.0.0.1:8080\",\"connection\":null,\"updated_at\":1792540800}"
+    },
+    {
+      "name": "https-operator-profile",
+      "accepted": true,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"https://graph.example\",\"connection\":{\"name\":\"Local DevGraph\",\"receiver\":\"https://graph.example\",\"issuer\":\"example-graph\",\"authority\":{\"issuer\":\"example-graph\",\"key_id\":\"example-key\",\"public_key\":\"1212121212121212121212121212121212121212121212121212121212121212\",\"receiver\":\"https://graph.example\",\"audience\":\"devgraph\"}},\"updated_at\":1792540800}"
+    },
+    {
+      "name": "loopback-ipv6",
+      "accepted": true,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"http://[::1]:8080\",\"connection\":null,\"updated_at\":1792540800}"
+    },
+    {
+      "name": "pinned-lan-profile",
+      "accepted": true,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"https://192.168.50.10:19443\",\"connection\":{\"name\":\"Local DevGraph\",\"receiver\":\"https://192.168.50.10:19443\",\"issuer\":\"example-graph\",\"authority\":{\"issuer\":\"example-graph\",\"key_id\":\"example-key\",\"public_key\":\"1212121212121212121212121212121212121212121212121212121212121212\",\"receiver\":\"https://192.168.50.10:19443\",\"audience\":\"devgraph\"},\"network\":\"lan\",\"tls_certificate_sha256\":\"3434343434343434343434343434343434343434343434343434343434343434\"},\"updated_at\":1792540800}"
+    },
+    {
+      "name": "unknown-kind",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"future-resource\",\"name\":\"Local DevGraph\",\"endpoint\":\"http://127.0.0.1:8080\",\"connection\":null,\"updated_at\":1792540800}"
+    },
+    {
+      "name": "secret-field",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"http://127.0.0.1:8080\",\"connection\":null,\"updated_at\":1792540800,\"credential\":\"must-not-be-discovered\"}"
+    },
+    {
+      "name": "upper-case-uuid",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5B4E45AC-6E51-43EE-AAD0-F1818A43F252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"http://127.0.0.1:8080\",\"connection\":null,\"updated_at\":1792540800}"
+    },
+    {
+      "name": "non-loopback-http",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"http://192.168.50.10:8080\",\"connection\":null,\"updated_at\":1792540800}"
+    },
+    {
+      "name": "credential-in-endpoint",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"https://operator:password@graph.example\",\"connection\":null,\"updated_at\":1792540800}"
+    },
+    {
+      "name": "endpoint-path",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"https://graph.example/monitor/\",\"connection\":null,\"updated_at\":1792540800}"
+    },
+    {
+      "name": "endpoint-query",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"https://graph.example?credential=secret\",\"connection\":null,\"updated_at\":1792540800}"
+    },
+    {
+      "name": "mismatched-profile",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"https://graph.example\",\"connection\":{\"name\":\"Local DevGraph\",\"receiver\":\"https://other.example\",\"issuer\":\"example-graph\",\"authority\":{\"issuer\":\"example-graph\",\"key_id\":\"example-key\",\"public_key\":\"1212121212121212121212121212121212121212121212121212121212121212\",\"receiver\":\"https://graph.example\",\"audience\":\"devgraph\"}},\"updated_at\":1792540800}"
+    },
+    {
+      "name": "profile-secret",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"https://graph.example\",\"connection\":{\"name\":\"Local DevGraph\",\"receiver\":\"https://graph.example\",\"issuer\":\"example-graph\",\"authority\":{\"issuer\":\"example-graph\",\"key_id\":\"example-key\",\"public_key\":\"1212121212121212121212121212121212121212121212121212121212121212\",\"receiver\":\"https://graph.example\",\"audience\":\"devgraph\"},\"credential\":\"not allowed\"},\"updated_at\":1792540800}"
+    },
+    {
+      "name": "lan-pin-missing",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"https://graph.example\",\"connection\":{\"name\":\"Local DevGraph\",\"receiver\":\"https://graph.example\",\"issuer\":\"example-graph\",\"authority\":{\"issuer\":\"example-graph\",\"key_id\":\"example-key\",\"public_key\":\"1212121212121212121212121212121212121212121212121212121212121212\",\"receiver\":\"https://graph.example\",\"audience\":\"devgraph\"},\"network\":\"lan\"},\"updated_at\":1792540800}"
+    },
+    {
+      "name": "float-time",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"http://127.0.0.1:8080\",\"connection\":null,\"updated_at\":1.0}"
+    },
+    {
+      "name": "bool-time",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"http://127.0.0.1:8080\",\"connection\":null,\"updated_at\":true}"
+    },
+    {
+      "name": "negative-time",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"http://127.0.0.1:8080\",\"connection\":null,\"updated_at\":-1}"
+    },
+    {
+      "name": "unsafe-integer-time",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"http://127.0.0.1:8080\",\"connection\":null,\"updated_at\":9007199254740992}"
+    },
+    {
+      "name": "blank-name",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\" \",\"endpoint\":\"http://127.0.0.1:8080\",\"connection\":null,\"updated_at\":1792540800}"
+    },
+    {
+      "name": "missing-connection",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"http://127.0.0.1:8080\",\"updated_at\":1792540800}"
+    },
+    {
+      "name": "duplicate-escaped-name",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"http://127.0.0.1:8080\",\"connection\":null,\"updated_at\":1792540800,\"na\\u006de\":\"Second name\"}"
+    },
+    {
+      "name": "nested-duplicate",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-resource.v1\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"kind\":\"devgraph\",\"name\":\"Local DevGraph\",\"endpoint\":\"https://graph.example\",\"connection\":{\"name\":\"Local DevGraph\",\"receiver\":\"https://graph.example\",\"issuer\":\"example-graph\",\"authority\":{\"issuer\":\"example-graph\",\"key_id\":\"example-key\",\"public_key\":\"1212121212121212121212121212121212121212121212121212121212121212\",\"receiver\":\"https://graph.example\",\"audience\":\"devgraph\",\"audience\":\"devgraph\"}},\"updated_at\":1792540800}"
+    }
+  ]
+}

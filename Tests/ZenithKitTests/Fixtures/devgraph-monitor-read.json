@@ -1,0 +1,118 @@
+{
+  "detail": {
+    "archived": false,
+    "artifact_ids": [],
+    "classification_required": false,
+    "created_at": "2026-10-13T00:00:00+00:00",
+    "description": "Full Todo description",
+    "external_link_ids": [],
+    "id": "first",
+    "key": "Todo/first",
+    "kind": "Todo",
+    "parent": null,
+    "priority": "2",
+    "progress": "in_progress",
+    "progress_label": "In progress",
+    "stage": null,
+    "title": "First Todo",
+    "updated_at": "2026-10-13T00:00:00+00:00",
+    "version": "1",
+    "workflow_id": null
+  },
+  "devgraph_revision": "f54f2182838a4dcd7917eb51103ffc22682faeb8",
+  "grant": {
+    "include_archived": false,
+    "operations": [
+      "list",
+      "get",
+      "relationships"
+    ],
+    "relationship_types": [
+      "children",
+      "parent",
+      "blockers",
+      "blocked"
+    ],
+    "scope": "devgraph.work.read",
+    "work_kinds": [
+      "Todo",
+      "Task"
+    ]
+  },
+  "next_page": {
+    "classification_required": 1,
+    "complete": true,
+    "items": [
+      {
+        "archived": false,
+        "classification_required": true,
+        "created_at": "2026-10-13T00:00:00+00:00",
+        "id": "second",
+        "key": "Todo/second",
+        "kind": "Todo",
+        "parent": null,
+        "priority": "1",
+        "progress": null,
+        "progress_label": "Needs classification",
+        "stage": null,
+        "title": "Second Todo",
+        "updated_at": "2026-10-13T00:00:00+00:00",
+        "version": "1",
+        "workflow_id": null
+      }
+    ],
+    "next_cursor": null,
+    "revision": "3bd382335b99f78538a7a905cdd1fda6930f7dec6c3bd8e8cd6f33b747792acb",
+    "schema": "devgraph.todos.v2",
+    "total": 2
+  },
+  "page": {
+    "classification_required": 1,
+    "complete": true,
+    "items": [
+      {
+        "archived": false,
+        "classification_required": false,
+        "created_at": "2026-10-13T00:00:00+00:00",
+        "id": "first",
+        "key": "Todo/first",
+        "kind": "Todo",
+        "parent": null,
+        "priority": "2",
+        "progress": "in_progress",
+        "progress_label": "In progress",
+        "stage": null,
+        "title": "First Todo",
+        "updated_at": "2026-10-13T00:00:00+00:00",
+        "version": "1",
+        "workflow_id": null
+      }
+    ],
+    "next_cursor": "Todo/first",
+    "revision": "3bd382335b99f78538a7a905cdd1fda6930f7dec6c3bd8e8cd6f33b747792acb",
+    "schema": "devgraph.todos.v2",
+    "total": 2
+  },
+  "related": {
+    "items": [
+      {
+        "archived": false,
+        "classification_required": false,
+        "created_at": "2026-10-13T00:00:00+00:00",
+        "id": "task",
+        "key": "Task/task",
+        "kind": "Task",
+        "parent": null,
+        "priority": "0",
+        "progress": "done",
+        "progress_label": "Done",
+        "stage": null,
+        "title": "Visible task",
+        "updated_at": "2026-10-13T00:00:00+00:00",
+        "version": "1",
+        "workflow_id": null
+      }
+    ]
+  },
+  "schema": "zenith.read-contract-fixtures.v1"
+}

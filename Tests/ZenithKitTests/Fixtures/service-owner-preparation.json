@@ -1,0 +1,210 @@
+{
+  "plan": {
+    "configuration_sha256": "95238ae20ee4e9620a2dffb9388b69263c0e3b8e2f6aec777ad4cc85b803e964",
+    "local_endpoint": "http://127.0.0.1:8080",
+    "not_before": 1000,
+    "owner_public_key": "ee8377ed00e0b195ab436933c08d9186f82353e02d8cc3091490de4abc64aaf4",
+    "paths": [],
+    "preset": "project-manager",
+    "publish_hierarchy": false,
+    "read_operations": [
+      "list",
+      "get",
+      "relationships"
+    ],
+    "registration_sha256": "d16a22118a2171125ebc01782a2dbcfceec0304a86ec49cd6fec53bb5c16ba02",
+    "resource_id": "5b4e45ac-6e51-43ee-aad0-f1818a43f252",
+    "resource_name": "Real fixture graph",
+    "schema": "zenith.devgraph-owner-setup.v3",
+    "scope_mode": "global",
+    "status": "prepared_not_applied",
+    "wallet_endpoint": "https://127.0.0.1:19443",
+    "write_operations": [
+      "create",
+      "patch",
+      "progress.set",
+      "dependency.add",
+      "dependency.remove",
+      "blocker.add",
+      "blocker.remove",
+      "parent.set",
+      "workflow.assign",
+      "workflow.transition",
+      "archive",
+      "restore"
+    ]
+  },
+  "preparation": {
+    "review": {
+      "certificate_trust_changed": false,
+      "cli_update_required": true,
+      "connection": {
+        "authority": {
+          "audience": "devgraph",
+          "issuer": "devgraph-5b4e45ac-6e51-43ee-aad0-f1818a43f252",
+          "key_id": "devgraph-5b4e45ac-6e51-43ee-aad0-f1818a43f252-read-v1",
+          "public_key": "eb1956738da15031370bf555d053bc6358f12d30d9dc169209c31039f4b9f6e9",
+          "receiver": "https://127.0.0.1:19443"
+        },
+        "issuer": "devgraph-5b4e45ac-6e51-43ee-aad0-f1818a43f252",
+        "name": "Real fixture graph",
+        "network": "local",
+        "receiver": "https://127.0.0.1:19443",
+        "tls_certificate_sha256": "8c6692bb70c793b4b1dba2ebc44f65ead89620d7afa16e34897c647864e7bcc5"
+      },
+      "database_restart": false,
+      "endpoint": "https://127.0.0.1:19443",
+      "existing_rules_preserved": 2,
+      "existing_service": {
+        "connection": {
+          "authority": {
+            "audience": "devgraph",
+            "issuer": "devgraph-5b4e45ac-6e51-43ee-aad0-f1818a43f252",
+            "key_id": "devgraph-5b4e45ac-6e51-43ee-aad0-f1818a43f252-read-v1",
+            "public_key": "eb1956738da15031370bf555d053bc6358f12d30d9dc169209c31039f4b9f6e9",
+            "receiver": "https://127.0.0.1:19443"
+          },
+          "issuer": "devgraph-5b4e45ac-6e51-43ee-aad0-f1818a43f252",
+          "name": "Real fixture graph",
+          "network": "local",
+          "receiver": "https://127.0.0.1:19443",
+          "tls_certificate_sha256": "8c6692bb70c793b4b1dba2ebc44f65ead89620d7afa16e34897c647864e7bcc5"
+        },
+        "endpoint": "https://127.0.0.1:19443",
+        "instance_id": "731a489f-9734-5ed0-8b06-4583ada6a3d5",
+        "label": "ca.zenith.devgraph.wallet-service.731a489f-9734-5ed0-8b06-4583ada6a3d5",
+        "launch_review_digest": "3532db8ba4b83333763cafe21aea6242c45faea1c813abab4f08177e96b1b512",
+        "plist_sha256": "359782e80b57818dcc2bd1e9fa0d77a5cbed504cb8eb4f8895ee38d79752e371",
+        "root": "/tmp/zenith-test/service-owner/Library/Application Support/Zenith/Devgraph/wallet-services/5b4e45ac-6e51-43ee-aad0-f1818a43f252"
+      },
+      "graph_data_root": "/tmp/zenith-test/service-owner/Library/Application Support/Zenith/Devgraph/data",
+      "inputs": {
+        "/tmp/zenith-test/service-owner/.local/bin/devgraph": "b538526874863212b04d49d964c012ca26889baff9c7756c1daa0030919cd53c",
+        "/tmp/zenith-test/service-owner/Library/Application Support/Zenith/Devgraph/data/secrets/secs-magik/devgraph.work.v1/receiver.json": "fc1a23d2cd6117d27be7212459c987eae0c4245b169eddb9a36c5b2bbf734751",
+        "/tmp/zenith-test/service-owner/Library/Application Support/Zenith/Devgraph/data/secrets/secs-magik/devgraph.work.v1/secs-public-key-registry.json": "7efcfe69ad0f8b56c9c430802f79c3ecfdee0b1c2c2cd95256f85ee33276785f",
+        "/tmp/zenith-test/service-owner/Library/Application Support/Zenith/Devgraph/local.json": "95238ae20ee4e9620a2dffb9388b69263c0e3b8e2f6aec777ad4cc85b803e964",
+        "/tmp/zenith-test/service-owner/Library/Application Support/Zenith/Devgraph/resource-registration.json": "d16a22118a2171125ebc01782a2dbcfceec0304a86ec49cd6fec53bb5c16ba02",
+        "/tmp/zenith-test/service-owner/Library/Application Support/Zenith/secS/authority/devgraph.work.v1/producer-manifest.json": "b8d2e148f0918a8820f681b54401952605ae4922323b1fb95d54d620e228c44e",
+        "/tmp/zenith-test/service-owner/Library/Application Support/Zenith/secS/authority/devgraph.work.v1/receiver-policy.json": "6dcfa698790f7cfcb8577eb78454a21611dd7f7a688d836ae2b8e794f056bf59",
+        "/tmp/zenith-test/service-owner/Library/Application Support/Zenith/secS/authority/devgraph.work.v1/secs-public-key-registry.json": "7efcfe69ad0f8b56c9c430802f79c3ecfdee0b1c2c2cd95256f85ee33276785f",
+        "/tmp/zenith-test/service-owner/Library/Application Support/Zenith/secS/bin/secs-devgraph-work-v1": "956360794a2c32fc560b32feea1066c37221a421908bbbd877210fb30972eab4"
+      },
+      "kinds": [
+        "Initiative",
+        "Project",
+        "Issue",
+        "Task"
+      ],
+      "local_only": true,
+      "members_preassigned": 0,
+      "native_admission_on_grant": true,
+      "native_holders": [],
+      "native_key_id": "same-key",
+      "native_key_not_after": 2000000000,
+      "native_key_registry": {
+        "keys": [
+          {
+            "key_id": "same-key",
+            "not_after": 2000000000,
+            "not_before": 1,
+            "public_key_base64url": "MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM",
+            "status": "active"
+          }
+        ],
+        "schema": "secs-public-key-registry.v1"
+      },
+      "native_key_unchanged": true,
+      "native_policy_digest": "45afdb5d9b8c650130cb3a3a77de869e61d7a1d4ea8fc7beb9ce6060ca84b772",
+      "native_policy_id": "real-work",
+      "native_policy_version": 32,
+      "new_native_rules": 0,
+      "onward_delegation": false,
+      "operations": [
+        "devgraph.work.create.v2",
+        "devgraph.work.patch.v2",
+        "devgraph.work.progress.set.v2",
+        "devgraph.work.dependency.add.v2",
+        "devgraph.work.dependency.remove.v2",
+        "devgraph.work.blocker.add.v2",
+        "devgraph.work.blocker.remove.v2",
+        "devgraph.work.parent.set.v2",
+        "devgraph.work.workflow.assign.v2",
+        "devgraph.work.workflow.transition.v2",
+        "devgraph.work.archive.v2",
+        "devgraph.work.restore.v2"
+      ],
+      "owner_claim_required": true,
+      "owner_public_key": "ee8377ed00e0b195ab436933c08d9186f82353e02d8cc3091490de4abc64aaf4",
+      "owner_wallet_confirmation_required": true,
+      "plan_digest": "0672c6eeec3c3e7cb61739ca14a9aca0bef6b0e3ebade15d38bcaf49b4481703",
+      "previous_agent_status": {
+        "actor_id": "existing-agent",
+        "arena_operations_authorized": 4,
+        "operations_authorized": 15,
+        "ready": true,
+        "receiver_matches": true,
+        "signer_matches": true
+      },
+      "previous_native_digest": "d491fe049e607e14e5dc07b5c622a85b96f619f8e6c568d977dbd0c8c4c2a5f1",
+      "previous_native_version": 31,
+      "private_api_unchanged": true,
+      "public_inputs": [
+        "/tmp/zenith-test/service-owner/.local/bin/devgraph"
+      ],
+      "python": "/usr/bin/python3",
+      "resource_id": "5b4e45ac-6e51-43ee-aad0-f1818a43f252",
+      "root": "/tmp/zenith-test/service-owner/Library/Application Support/Zenith/Devgraph/wallet-endpoints/5b4e45ac-6e51-43ee-aad0-f1818a43f252/0672c6eeec3c3e7cb61739ca14a9aca0bef6b0e3ebade15d38bcaf49b4481703",
+      "schema": "devgraph.owner-install-review.v1",
+      "source_endpoint": "http://127.0.0.1:8080",
+      "staged": {
+        "authority/enrollment.json": "4c57863201b565c47bda3f694a54e665f78b315c550a0202c0fd5d958177f23d",
+        "authority/members.json": "9e67f0ade00b4867c1fb92a51bf720b0007828ad4ff18eea0459a1aa82d7e172",
+        "authority/membership-trust.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "authority/native-policy.json": "e546c4244dacfe513e961aed930f63a6d32ba88d7691c0532258e31ab9a316cc",
+        "authority/operators.json": "923102b813e61291e2f003e83221946a1c753541e44768fd3dac09591754ffd3",
+        "authority/read-authority.json": "4b191b43d616e07b0f536fe24422ba41966d3ddd1ed2d6311632ccde0ac3e950",
+        "authority/read.key": "51c8f2d3cfb586b274e55327592852a2d994e93a72c225f4f6dc4b26ad79684d",
+        "authority/revoked.json": "8b867146e3f31002206528b7dfbb49a918ddda3e4c36120d91b2150c8ab420d1",
+        "bin/secs-devgraph-work-v1": "c6f726eb2976f38da6282490f0d63257c90b5fcff9f9dcf2ab24efa1d509f0a7",
+        "bin/secs-devgraph-work-v2": "23266455b3b8f0ba6073ab780f9327b914ce1d4851b4afe6f2d05d80446ff5c5",
+        "bin/secs-read-authority-v1": "0bf25d67c6eaa07ce2d380446131ad9be290c5b6b3d3627250e9dcc93c9fed3c",
+        "connection.json": "9b7636665a48867e0ed1b8514cea217f11c1f892ee6564ba8c56554c9f4f0f64",
+        "plan.json": "0672c6eeec3c3e7cb61739ca14a9aca0bef6b0e3ebade15d38bcaf49b4481703",
+        "runtime.json": "384bc9c797c390c57561a1bce979fe993a9fa4e8274704d24272f1987fcfc177",
+        "source/devgraph/__init__.py": "c6e8aef74a8b0647edb3951b47cf16c5fdfa8ea27beaa2408a24882d5da354f5",
+        "state/prepared.json": "e705cc2e2807546aee8d8aa70fe873e37ef8a38d40a6a4cdf434fd6d25fd542a",
+        "tls/tls.crt": "f5eb0f91cbda31872163e71de17fb3444171f47c474e0b7a536a8a463c263e5e",
+        "tls/tls.key": "be370f64a9f4a080b5370b278355220f46f32ff32c04bf5710a8006d03cfec6c"
+      },
+      "status": "prepared_not_activated",
+      "tls_certificate_not_after": 31537000,
+      "tls_certificate_sha256": "8c6692bb70c793b4b1dba2ebc44f65ead89620d7afa16e34897c647864e7bcc5"
+    },
+    "review_digest": "d4a93c1f1b803c291c7b33f9aa140192cd3b3f6a7aedfc4a1dded3245002514f"
+  },
+  "schema": "devgraph.service-owner-preparation.v1",
+  "service": {
+    "connection": {
+      "authority": {
+        "audience": "devgraph",
+        "issuer": "devgraph-5b4e45ac-6e51-43ee-aad0-f1818a43f252",
+        "key_id": "devgraph-5b4e45ac-6e51-43ee-aad0-f1818a43f252-read-v1",
+        "public_key": "eb1956738da15031370bf555d053bc6358f12d30d9dc169209c31039f4b9f6e9",
+        "receiver": "https://127.0.0.1:19443"
+      },
+      "issuer": "devgraph-5b4e45ac-6e51-43ee-aad0-f1818a43f252",
+      "name": "Real fixture graph",
+      "network": "local",
+      "receiver": "https://127.0.0.1:19443",
+      "tls_certificate_sha256": "8c6692bb70c793b4b1dba2ebc44f65ead89620d7afa16e34897c647864e7bcc5"
+    },
+    "endpoint": "https://127.0.0.1:19443",
+    "instance_id": "731a489f-9734-5ed0-8b06-4583ada6a3d5",
+    "interface": "wallet-api",
+    "kind": "devgraph",
+    "name": "Real fixture graph",
+    "resource_id": "5b4e45ac-6e51-43ee-aad0-f1818a43f252",
+    "schema": "zenith.local-service.v1",
+    "updated_at": 1000
+  }
+}

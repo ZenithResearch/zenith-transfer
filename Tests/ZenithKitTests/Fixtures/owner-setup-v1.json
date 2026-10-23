@@ -1,0 +1,79 @@
+{
+  "schema": "zenith.devgraph-owner-setup-v1.vectors",
+  "cases": [
+    {
+      "name": "global-standing-manager",
+      "accepted": true,
+      "raw": "{\"configuration_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"local_endpoint\":\"http://127.0.0.1:8080\",\"not_before\":100,\"owner_public_key\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"paths\":[],\"preset\":\"project-manager\",\"publish_hierarchy\":false,\"registration_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"resource_name\":\"Local DevGraph\",\"schema\":\"zenith.devgraph-owner-setup.v1\",\"scope_mode\":\"global\",\"status\":\"prepared_not_applied\",\"wallet_endpoint\":\"https://127.0.0.1:18443\",\"write_operations\":[\"create\",\"patch\",\"progress.set\",\"dependency.add\",\"dependency.remove\",\"blocker.add\",\"blocker.remove\",\"parent.set\",\"workflow.assign\",\"workflow.transition\",\"archive\",\"restore\"]}",
+      "digest": "1624e57516c0bbcc4c20cf9788616448f96e7c7d5f3101fd769bf7cbd82ef616"
+    },
+    {
+      "name": "multiple-standing-paths",
+      "accepted": true,
+      "raw": "{\"configuration_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"local_endpoint\":\"http://127.0.0.1:8080\",\"not_before\":100,\"owner_public_key\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"paths\":[{\"kind\":\"Arena\",\"path\":[\"Arena/area-a\"],\"resource_id\":\"area-a\",\"title\":\"Area A\"},{\"kind\":\"Project\",\"path\":[\"Arena/area-b\",\"Initiative/initiative-b\",\"Project/project-b\"],\"resource_id\":\"project-b\",\"title\":\"Project B\"}],\"preset\":\"project-manager\",\"publish_hierarchy\":false,\"registration_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"resource_name\":\"Local DevGraph\",\"schema\":\"zenith.devgraph-owner-setup.v1\",\"scope_mode\":\"paths\",\"status\":\"prepared_not_applied\",\"wallet_endpoint\":\"https://127.0.0.1:18443\",\"write_operations\":[\"create\",\"patch\",\"progress.set\",\"dependency.add\",\"dependency.remove\",\"blocker.add\",\"blocker.remove\",\"parent.set\",\"workflow.assign\",\"workflow.transition\",\"archive\",\"restore\"]}",
+      "digest": "675179306f8d9ab15ed7f72b086190fae2e48fbc590d2159cbeef6e834074a3f"
+    },
+    {
+      "name": "dated-reader",
+      "accepted": true,
+      "raw": "{\"configuration_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"local_endpoint\":\"http://127.0.0.1:8080\",\"not_after\":2000,\"not_before\":100,\"owner_public_key\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"paths\":[],\"preset\":\"reader\",\"publish_hierarchy\":false,\"registration_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"resource_name\":\"Local DevGraph\",\"schema\":\"zenith.devgraph-owner-setup.v1\",\"scope_mode\":\"global\",\"status\":\"prepared_not_applied\",\"wallet_endpoint\":\"https://127.0.0.1:18443\",\"write_operations\":[]}",
+      "digest": "0e0e20cede50dd499ed1f3c434faa0e8045e31bba0822539e5bbc6e5cde2dec1"
+    },
+    {
+      "name": "custom-permissions",
+      "accepted": true,
+      "raw": "{\"configuration_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"local_endpoint\":\"http://127.0.0.1:8080\",\"not_before\":100,\"owner_public_key\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"paths\":[],\"preset\":\"custom\",\"publish_hierarchy\":false,\"registration_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"resource_name\":\"Local DevGraph\",\"schema\":\"zenith.devgraph-owner-setup.v1\",\"scope_mode\":\"global\",\"status\":\"prepared_not_applied\",\"wallet_endpoint\":\"https://127.0.0.1:18443\",\"write_operations\":[\"patch\",\"archive\"]}",
+      "digest": "98d5434776de74951cafcd6f9ec3b32d7f92d7169bd5e2a5a6750fc506bd2447"
+    },
+    {
+      "name": "empty-path-selection",
+      "accepted": false,
+      "raw": "{\"configuration_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"local_endpoint\":\"http://127.0.0.1:8080\",\"not_before\":100,\"owner_public_key\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"paths\":[],\"preset\":\"project-manager\",\"publish_hierarchy\":false,\"registration_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"resource_name\":\"Local DevGraph\",\"schema\":\"zenith.devgraph-owner-setup.v1\",\"scope_mode\":\"paths\",\"status\":\"prepared_not_applied\",\"wallet_endpoint\":\"https://127.0.0.1:18443\",\"write_operations\":[\"create\",\"patch\",\"progress.set\",\"dependency.add\",\"dependency.remove\",\"blocker.add\",\"blocker.remove\",\"parent.set\",\"workflow.assign\",\"workflow.transition\",\"archive\",\"restore\"]}"
+    },
+    {
+      "name": "preset-does-not-match-permissions",
+      "accepted": false,
+      "raw": "{\"configuration_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"local_endpoint\":\"http://127.0.0.1:8080\",\"not_before\":100,\"owner_public_key\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"paths\":[],\"preset\":\"project-manager\",\"publish_hierarchy\":false,\"registration_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"resource_name\":\"Local DevGraph\",\"schema\":\"zenith.devgraph-owner-setup.v1\",\"scope_mode\":\"global\",\"status\":\"prepared_not_applied\",\"wallet_endpoint\":\"https://127.0.0.1:18443\",\"write_operations\":[\"patch\"]}"
+    },
+    {
+      "name": "boolean-validity",
+      "accepted": false,
+      "raw": "{\"configuration_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"local_endpoint\":\"http://127.0.0.1:8080\",\"not_before\":true,\"owner_public_key\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"paths\":[],\"preset\":\"project-manager\",\"publish_hierarchy\":false,\"registration_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"resource_name\":\"Local DevGraph\",\"schema\":\"zenith.devgraph-owner-setup.v1\",\"scope_mode\":\"global\",\"status\":\"prepared_not_applied\",\"wallet_endpoint\":\"https://127.0.0.1:18443\",\"write_operations\":[\"create\",\"patch\",\"progress.set\",\"dependency.add\",\"dependency.remove\",\"blocker.add\",\"blocker.remove\",\"parent.set\",\"workflow.assign\",\"workflow.transition\",\"archive\",\"restore\"]}"
+    },
+    {
+      "name": "foreign-resource",
+      "accepted": false,
+      "raw": "{\"configuration_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"local_endpoint\":\"https://remote.example\",\"not_before\":100,\"owner_public_key\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"paths\":[],\"preset\":\"project-manager\",\"publish_hierarchy\":false,\"registration_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"resource_name\":\"Local DevGraph\",\"schema\":\"zenith.devgraph-owner-setup.v1\",\"scope_mode\":\"global\",\"status\":\"prepared_not_applied\",\"wallet_endpoint\":\"https://127.0.0.1:18443\",\"write_operations\":[\"create\",\"patch\",\"progress.set\",\"dependency.add\",\"dependency.remove\",\"blocker.add\",\"blocker.remove\",\"parent.set\",\"workflow.assign\",\"workflow.transition\",\"archive\",\"restore\"]}"
+    },
+    {
+      "name": "redundant-parent-and-child",
+      "accepted": false,
+      "raw": "{\"configuration_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"local_endpoint\":\"http://127.0.0.1:8080\",\"not_before\":100,\"owner_public_key\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"paths\":[{\"kind\":\"Arena\",\"path\":[\"Arena/area-a\"],\"resource_id\":\"area-a\",\"title\":\"Area A\"},{\"kind\":\"Initiative\",\"path\":[\"Arena/area-a\",\"Initiative/initiative-a\"],\"resource_id\":\"initiative-a\",\"title\":\"Initiative A\"}],\"preset\":\"project-manager\",\"publish_hierarchy\":false,\"registration_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"resource_name\":\"Local DevGraph\",\"schema\":\"zenith.devgraph-owner-setup.v1\",\"scope_mode\":\"paths\",\"status\":\"prepared_not_applied\",\"wallet_endpoint\":\"https://127.0.0.1:18443\",\"write_operations\":[\"create\",\"patch\",\"progress.set\",\"dependency.add\",\"dependency.remove\",\"blocker.add\",\"blocker.remove\",\"parent.set\",\"workflow.assign\",\"workflow.transition\",\"archive\",\"restore\"]}"
+    },
+    {
+      "name": "active-is-not-a-plan",
+      "accepted": false,
+      "raw": "{\"configuration_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"local_endpoint\":\"http://127.0.0.1:8080\",\"not_before\":100,\"owner_public_key\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"paths\":[],\"preset\":\"project-manager\",\"publish_hierarchy\":false,\"registration_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"resource_name\":\"Local DevGraph\",\"schema\":\"zenith.devgraph-owner-setup.v1\",\"scope_mode\":\"global\",\"status\":\"active\",\"wallet_endpoint\":\"https://127.0.0.1:18443\",\"write_operations\":[\"create\",\"patch\",\"progress.set\",\"dependency.add\",\"dependency.remove\",\"blocker.add\",\"blocker.remove\",\"parent.set\",\"workflow.assign\",\"workflow.transition\",\"archive\",\"restore\"]}"
+    },
+    {
+      "name": "unknown-field",
+      "accepted": false,
+      "raw": "{\"configuration_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"local_endpoint\":\"http://127.0.0.1:8080\",\"not_before\":100,\"owner_public_key\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"paths\":[],\"preset\":\"project-manager\",\"publish_hierarchy\":false,\"registration_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"resource_name\":\"Local DevGraph\",\"schema\":\"zenith.devgraph-owner-setup.v1\",\"scope_mode\":\"global\",\"status\":\"prepared_not_applied\",\"unexpected\":\"not allowed\",\"wallet_endpoint\":\"https://127.0.0.1:18443\",\"write_operations\":[\"create\",\"patch\",\"progress.set\",\"dependency.add\",\"dependency.remove\",\"blocker.add\",\"blocker.remove\",\"parent.set\",\"workflow.assign\",\"workflow.transition\",\"archive\",\"restore\"]}"
+    },
+    {
+      "name": "noncanonical-address",
+      "accepted": false,
+      "raw": "{\"configuration_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"local_endpoint\":\"http://127.0.0.1:8080\",\"not_before\":100,\"owner_public_key\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"paths\":[],\"preset\":\"project-manager\",\"publish_hierarchy\":false,\"registration_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"resource_name\":\"Local DevGraph\",\"schema\":\"zenith.devgraph-owner-setup.v1\",\"scope_mode\":\"global\",\"status\":\"prepared_not_applied\",\"wallet_endpoint\":\"https://192.168.50.010:18443\",\"write_operations\":[\"create\",\"patch\",\"progress.set\",\"dependency.add\",\"dependency.remove\",\"blocker.add\",\"blocker.remove\",\"parent.set\",\"workflow.assign\",\"workflow.transition\",\"archive\",\"restore\"]}"
+    },
+    {
+      "name": "float-validity",
+      "accepted": false,
+      "raw": "{\"configuration_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"local_endpoint\":\"http://127.0.0.1:8080\",\"not_before\":100.0,\"owner_public_key\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"paths\":[],\"preset\":\"project-manager\",\"publish_hierarchy\":false,\"registration_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"resource_name\":\"Local DevGraph\",\"schema\":\"zenith.devgraph-owner-setup.v1\",\"scope_mode\":\"global\",\"status\":\"prepared_not_applied\",\"wallet_endpoint\":\"https://127.0.0.1:18443\",\"write_operations\":[\"create\",\"patch\",\"progress.set\",\"dependency.add\",\"dependency.remove\",\"blocker.add\",\"blocker.remove\",\"parent.set\",\"workflow.assign\",\"workflow.transition\",\"archive\",\"restore\"]}"
+    },
+    {
+      "name": "escaped-duplicate-owner",
+      "accepted": false,
+      "raw": "{\"configuration_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"local_endpoint\":\"http://127.0.0.1:8080\",\"not_before\":100,\"owner_public_key\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"paths\":[],\"preset\":\"project-manager\",\"publish_hierarchy\":false,\"registration_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"resource_id\":\"5b4e45ac-6e51-43ee-aad0-f1818a43f252\",\"resource_name\":\"Local DevGraph\",\"schema\":\"zenith.devgraph-owner-setup.v1\",\"scope_mode\":\"global\",\"status\":\"prepared_not_applied\",\"wallet_endpoint\":\"https://127.0.0.1:18443\",\"write_operations\":[\"create\",\"patch\",\"progress.set\",\"dependency.add\",\"dependency.remove\",\"blocker.add\",\"blocker.remove\",\"parent.set\",\"workflow.assign\",\"workflow.transition\",\"archive\",\"restore\"],\"owner_\\u0070ublic_key\":\"2222222222222222222222222222222222222222222222222222222222222222\"}"
+    }
+  ]
+}

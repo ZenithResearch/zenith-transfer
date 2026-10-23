@@ -1,0 +1,27 @@
+{
+  "schema": "zenith.transfer-dependencies.v1",
+  "wallet": {
+    "repository": "https://github.com/ZenithResearch/castalia-wallet",
+    "revision": "bde3835192c4be886fb6bed241a6e221c5fa3ea4",
+    "crates": [
+      "castalia-wallet-core",
+      "castalia-wallet-native",
+      "castalia-wallet-presentation"
+    ]
+  },
+  "read_contract": {
+    "credential": "castalia.read-credential.v1",
+    "presentation": "castalia.read-presentation.v1",
+    "transport": "devgraph.native-read.v2",
+    "scope_versions": [
+      "devgraph.native-read-scope.v2",
+      "devgraph.native-read-scope.v3",
+      "devgraph.native-read-scope.v4"
+    ],
+    "monitor_endpoint": "/monitor/wallet-access/v1/requests",
+    "access_request": "castalia.access-request-challenge.v1",
+    "access_request_endpoint": "/devgraph/access-requests/v2",
+    "native_graph_protocol": "castalia.graph-access.v2",
+    "native_operator_protocol": "castalia.operator-access.v1"
+  }
+}

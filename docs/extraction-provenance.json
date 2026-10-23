@@ -1,0 +1,10 @@
+{
+  "schema": "zenith.transfer-source-extraction.v1",
+  "source_repository": "https://github.com/ZenithResearch/zenith-ios",
+  "source_base_commit": "c76fac4",
+  "source_state": "Working Transfer and shared ZenithKit changes through build 29, plus the build 30 identity workspace",
+  "included": ["Sources/ZenithTransfer", "Sources/ZenithKit", "Tests", "selected build scripts", "established Zenith artwork", "existing component notices"],
+  "excluded": ["iOS application and project", "Wallet binaries and build output", "machine settings and Wallet storage", "pending LAN RPC v2 experiment"],
+  "storage_migration": false,
+  "authority_change": false
+}

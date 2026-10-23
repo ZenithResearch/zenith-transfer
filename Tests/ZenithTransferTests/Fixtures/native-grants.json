@@ -1,0 +1,707 @@
+[
+  {
+    "name": "explicit global mixed standing",
+    "ceiling": {
+      "schema": "devgraph.access-draft.v5",
+      "issuer": "fixture",
+      "receiver": "https://fixture.example",
+      "write_audience": "devgraph://receiver-local",
+      "lifetime_seconds": 300,
+      "validity": {
+        "schema": "castalia.grant-validity.v1",
+        "mode": "until_revoked",
+        "not_before": 1
+      },
+      "read_grants": [
+        {
+          "scope": "devgraph.work.read",
+          "operations": [
+            "list",
+            "get",
+            "relationships"
+          ],
+          "relationship_types": [
+            "parent",
+            "children"
+          ],
+          "work_kinds": [
+            "Project",
+            "Task"
+          ],
+          "include_archived": false
+        }
+      ],
+      "write_grants": [
+        {
+          "operation": "devgraph.work.create.v2",
+          "resources": [
+            {
+              "kind": "Project"
+            },
+            {
+              "kind": "Task"
+            }
+          ]
+        },
+        {
+          "operation": "devgraph.work.patch.v2",
+          "resources": [
+            {
+              "kind": "Project"
+            },
+            {
+              "kind": "Task"
+            }
+          ]
+        },
+        {
+          "operation": "devgraph.work.progress.set.v2",
+          "resources": [
+            {
+              "kind": "Task"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "recipient": {
+      "request_id": "dddddddddddddddddddddddddddddddd",
+      "subject_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "installation_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "request_digest_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "version": 1
+    },
+    "now": 1800000000,
+    "paths": [],
+    "reads": [
+      "list",
+      "get"
+    ],
+    "writes": [
+      "devgraph.work.patch.v2",
+      "devgraph.work.create.v2"
+    ],
+    "kinds": [
+      "Project",
+      "Task"
+    ],
+    "end": null,
+    "expected": {
+      "read": {
+        "schema": "devgraph.access-draft.v5",
+        "issuer": "fixture",
+        "receiver": "https://fixture.example",
+        "write_audience": "devgraph://receiver-local",
+        "lifetime_seconds": 300,
+        "validity": {
+          "schema": "castalia.grant-validity.v1",
+          "mode": "until_revoked",
+          "not_before": 1800000000
+        },
+        "read_grants": [
+          {
+            "scope": "devgraph.work.read",
+            "operations": [
+              "list",
+              "get"
+            ],
+            "relationship_types": [
+              "parent",
+              "children"
+            ],
+            "work_kinds": [
+              "Project",
+              "Task"
+            ],
+            "include_archived": false
+          }
+        ],
+        "subject_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "previous_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "installation_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "write": {
+        "schema": "devgraph.access-draft.v5",
+        "issuer": "fixture",
+        "receiver": "https://fixture.example",
+        "write_audience": "devgraph://receiver-local",
+        "lifetime_seconds": 300,
+        "validity": {
+          "schema": "castalia.grant-validity.v1",
+          "mode": "until_revoked",
+          "not_before": 1800000000
+        },
+        "write_grants": [
+          {
+            "operation": "devgraph.work.create.v2",
+            "resources": [
+              {
+                "kind": "Project"
+              },
+              {
+                "kind": "Task"
+              }
+            ]
+          },
+          {
+            "operation": "devgraph.work.patch.v2",
+            "resources": [
+              {
+                "kind": "Project"
+              },
+              {
+                "kind": "Task"
+              }
+            ]
+          }
+        ],
+        "subject_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "previous_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    }
+  },
+  {
+    "name": "multiple branches exclude path creation",
+    "ceiling": {
+      "schema": "devgraph.access-draft.v5",
+      "issuer": "fixture",
+      "receiver": "https://fixture.example",
+      "write_audience": "devgraph://receiver-local",
+      "lifetime_seconds": 300,
+      "validity": {
+        "schema": "castalia.grant-validity.v1",
+        "mode": "until_revoked",
+        "not_before": 1
+      },
+      "read_grants": [
+        {
+          "scope": "devgraph.work.read",
+          "operations": [
+            "list",
+            "get",
+            "relationships"
+          ],
+          "relationship_types": [
+            "parent",
+            "children"
+          ],
+          "work_kinds": [
+            "Project",
+            "Task"
+          ],
+          "include_archived": false
+        }
+      ],
+      "write_grants": [
+        {
+          "operation": "devgraph.work.create.v2",
+          "resources": [
+            {
+              "kind": "Project"
+            },
+            {
+              "kind": "Task"
+            }
+          ]
+        },
+        {
+          "operation": "devgraph.work.patch.v2",
+          "resources": [
+            {
+              "kind": "Project"
+            },
+            {
+              "kind": "Task"
+            }
+          ]
+        },
+        {
+          "operation": "devgraph.work.progress.set.v2",
+          "resources": [
+            {
+              "kind": "Task"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "recipient": {
+      "request_id": "dddddddddddddddddddddddddddddddd",
+      "subject_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "installation_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "request_digest_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "version": 1
+    },
+    "now": 1800000000,
+    "paths": [
+      {
+        "schema": "devgraph.resource-path.v1",
+        "path": [
+          "Arena/a",
+          "Project/p"
+        ]
+      },
+      {
+        "schema": "devgraph.resource-path.v1",
+        "path": [
+          "Arena/b",
+          "Initiative/i"
+        ]
+      }
+    ],
+    "reads": [
+      "list",
+      "get"
+    ],
+    "writes": [
+      "devgraph.work.create.v2",
+      "devgraph.work.patch.v2",
+      "devgraph.work.progress.set.v2"
+    ],
+    "kinds": [
+      "Project",
+      "Task"
+    ],
+    "end": null,
+    "expected": {
+      "read": {
+        "schema": "devgraph.access-draft.v5",
+        "issuer": "fixture",
+        "receiver": "https://fixture.example",
+        "write_audience": "devgraph://receiver-local",
+        "lifetime_seconds": 300,
+        "validity": {
+          "schema": "castalia.grant-validity.v1",
+          "mode": "until_revoked",
+          "not_before": 1800000000
+        },
+        "read_grants": [
+          {
+            "scope": "devgraph.work.read",
+            "operations": [
+              "list",
+              "get"
+            ],
+            "relationship_types": [
+              "parent",
+              "children"
+            ],
+            "work_kinds": [
+              "Project",
+              "Task"
+            ],
+            "include_archived": false,
+            "resource_paths": [
+              {
+                "schema": "devgraph.resource-path.v1",
+                "path": [
+                  "Arena/a",
+                  "Project/p"
+                ]
+              },
+              {
+                "schema": "devgraph.resource-path.v1",
+                "path": [
+                  "Arena/b",
+                  "Initiative/i"
+                ]
+              }
+            ],
+            "schema": "devgraph.path-read-grant.v1"
+          }
+        ],
+        "subject_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "previous_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "installation_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "write": {
+        "schema": "devgraph.access-draft.v5",
+        "issuer": "fixture",
+        "receiver": "https://fixture.example",
+        "write_audience": "devgraph://receiver-local",
+        "lifetime_seconds": 300,
+        "validity": {
+          "schema": "castalia.grant-validity.v1",
+          "mode": "until_revoked",
+          "not_before": 1800000000
+        },
+        "write_grants": [
+          {
+            "operation": "devgraph.work.patch.v2",
+            "resources": [
+              {
+                "kind": "Project"
+              },
+              {
+                "kind": "Task"
+              }
+            ],
+            "resource_paths": [
+              {
+                "schema": "devgraph.resource-path.v1",
+                "path": [
+                  "Arena/a",
+                  "Project/p"
+                ]
+              },
+              {
+                "schema": "devgraph.resource-path.v1",
+                "path": [
+                  "Arena/b",
+                  "Initiative/i"
+                ]
+              }
+            ],
+            "schema": "devgraph.path-write-grant.v1"
+          },
+          {
+            "operation": "devgraph.work.progress.set.v2",
+            "resources": [
+              {
+                "kind": "Task"
+              }
+            ],
+            "resource_paths": [
+              {
+                "schema": "devgraph.resource-path.v1",
+                "path": [
+                  "Arena/a",
+                  "Project/p"
+                ]
+              },
+              {
+                "schema": "devgraph.resource-path.v1",
+                "path": [
+                  "Arena/b",
+                  "Initiative/i"
+                ]
+              }
+            ],
+            "schema": "devgraph.path-write-grant.v1"
+          }
+        ],
+        "subject_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "previous_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    }
+  },
+  {
+    "name": "correlated rules retain IDs arenas and operations",
+    "ceiling": {
+      "schema": "devgraph.access-draft.v5",
+      "issuer": "fixture",
+      "receiver": "https://fixture.example",
+      "write_audience": "devgraph://receiver-local",
+      "lifetime_seconds": 300,
+      "validity": {
+        "schema": "castalia.grant-validity.v1",
+        "mode": "until_revoked",
+        "not_before": 1
+      },
+      "read_grants": [
+        {
+          "scope": "devgraph.work.read",
+          "operations": [
+            "get"
+          ],
+          "relationship_types": [
+            "parent",
+            "children"
+          ],
+          "work_kinds": [
+            "Project"
+          ],
+          "work_ids": [
+            "Project/p"
+          ],
+          "include_archived": false,
+          "arena_ids": [
+            "a"
+          ]
+        },
+        {
+          "scope": "devgraph.work.read",
+          "operations": [
+            "list"
+          ],
+          "relationship_types": [
+            "parent",
+            "children"
+          ],
+          "work_kinds": [
+            "Task"
+          ],
+          "work_ids": [
+            "Task/t"
+          ],
+          "include_archived": false,
+          "arena_ids": [
+            "b"
+          ]
+        }
+      ],
+      "write_grants": [
+        {
+          "operation": "devgraph.work.create.v2",
+          "resources": [
+            {
+              "kind": "Project"
+            },
+            {
+              "kind": "Task"
+            }
+          ]
+        },
+        {
+          "operation": "devgraph.work.patch.v2",
+          "resources": [
+            {
+              "kind": "Project"
+            },
+            {
+              "kind": "Task"
+            }
+          ]
+        },
+        {
+          "operation": "devgraph.work.progress.set.v2",
+          "resources": [
+            {
+              "kind": "Task"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "recipient": {
+      "request_id": "dddddddddddddddddddddddddddddddd",
+      "subject_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "installation_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "request_digest_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "version": 1
+    },
+    "now": 1800000000,
+    "paths": [],
+    "reads": [
+      "list",
+      "get"
+    ],
+    "writes": [],
+    "kinds": [
+      "Project",
+      "Task"
+    ],
+    "end": null,
+    "expected": {
+      "read": {
+        "schema": "devgraph.access-draft.v5",
+        "issuer": "fixture",
+        "receiver": "https://fixture.example",
+        "write_audience": "devgraph://receiver-local",
+        "lifetime_seconds": 300,
+        "validity": {
+          "schema": "castalia.grant-validity.v1",
+          "mode": "until_revoked",
+          "not_before": 1800000000
+        },
+        "read_grants": [
+          {
+            "scope": "devgraph.work.read",
+            "operations": [
+              "get"
+            ],
+            "relationship_types": [
+              "parent",
+              "children"
+            ],
+            "work_kinds": [
+              "Project"
+            ],
+            "work_ids": [
+              "Project/p"
+            ],
+            "include_archived": false,
+            "arena_ids": [
+              "a"
+            ]
+          },
+          {
+            "scope": "devgraph.work.read",
+            "operations": [
+              "list"
+            ],
+            "relationship_types": [
+              "parent",
+              "children"
+            ],
+            "work_kinds": [
+              "Task"
+            ],
+            "work_ids": [
+              "Task/t"
+            ],
+            "include_archived": false,
+            "arena_ids": [
+              "b"
+            ]
+          }
+        ],
+        "subject_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "previous_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "installation_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    }
+  },
+  {
+    "name": "parent intersection and finite validity",
+    "ceiling": {
+      "schema": "devgraph.access-draft.v5",
+      "issuer": "fixture",
+      "receiver": "https://fixture.example",
+      "write_audience": "devgraph://receiver-local",
+      "lifetime_seconds": 300,
+      "validity": {
+        "schema": "castalia.grant-validity.v1",
+        "mode": "dated",
+        "not_before": 1,
+        "not_after": 1800001000
+      },
+      "read_grants": [
+        {
+          "scope": "devgraph.work.read",
+          "operations": [
+            "list",
+            "get",
+            "relationships"
+          ],
+          "relationship_types": [
+            "parent",
+            "children"
+          ],
+          "work_kinds": [
+            "Task"
+          ],
+          "include_archived": false,
+          "schema": "devgraph.path-read-grant.v1",
+          "resource_paths": [
+            {
+              "schema": "devgraph.resource-path.v1",
+              "path": [
+                "Arena/a"
+              ]
+            }
+          ]
+        }
+      ],
+      "write_grants": [
+        {
+          "operation": "devgraph.work.create.v2",
+          "resources": [
+            {
+              "kind": "Project"
+            },
+            {
+              "kind": "Task"
+            }
+          ]
+        },
+        {
+          "operation": "devgraph.work.patch.v2",
+          "resources": [
+            {
+              "kind": "Project"
+            },
+            {
+              "kind": "Task"
+            }
+          ]
+        },
+        {
+          "operation": "devgraph.work.progress.set.v2",
+          "resources": [
+            {
+              "kind": "Task"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "recipient": {
+      "request_id": "dddddddddddddddddddddddddddddddd",
+      "subject_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "installation_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "request_digest_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "version": 1
+    },
+    "now": 1800000000,
+    "paths": [
+      {
+        "schema": "devgraph.resource-path.v1",
+        "path": [
+          "Arena/a",
+          "Initiative/i",
+          "Project/p"
+        ]
+      }
+    ],
+    "reads": [
+      "list",
+      "get"
+    ],
+    "writes": [],
+    "kinds": [
+      "Task"
+    ],
+    "end": 1800000500,
+    "expected": {
+      "read": {
+        "schema": "devgraph.access-draft.v5",
+        "issuer": "fixture",
+        "receiver": "https://fixture.example",
+        "write_audience": "devgraph://receiver-local",
+        "lifetime_seconds": 300,
+        "validity": {
+          "schema": "castalia.grant-validity.v1",
+          "mode": "dated",
+          "not_before": 1800000000,
+          "not_after": 1800000500
+        },
+        "read_grants": [
+          {
+            "scope": "devgraph.work.read",
+            "operations": [
+              "list",
+              "get"
+            ],
+            "relationship_types": [
+              "parent",
+              "children"
+            ],
+            "work_kinds": [
+              "Task"
+            ],
+            "include_archived": false,
+            "schema": "devgraph.path-read-grant.v1",
+            "resource_paths": [
+              {
+                "schema": "devgraph.resource-path.v1",
+                "path": [
+                  "Arena/a",
+                  "Initiative/i",
+                  "Project/p"
+                ]
+              }
+            ]
+          }
+        ],
+        "subject_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "previous_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "installation_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    }
+  }
+]

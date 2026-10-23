@@ -1,0 +1,84 @@
+{
+  "schema": "devgraph.access-catalog.v1",
+  "issuer": "fixture",
+  "receiver": "https://example.test",
+  "revision": 3,
+  "presets": [
+    {
+      "id": "contributor",
+      "name": "Contributor · Recherche 雲",
+      "version": 1,
+      "read_operations": [
+        "list",
+        "get"
+      ],
+      "write_operations": [
+        "devgraph.work.patch.v2"
+      ]
+    },
+    {
+      "id": "project-manager",
+      "name": "Project Manager",
+      "version": 1,
+      "read_operations": [
+        "list",
+        "get"
+      ],
+      "write_operations": [
+        "devgraph.work.patch.v2"
+      ]
+    }
+  ],
+  "published_paths": [
+    {
+      "resource_path": {
+        "schema": "devgraph.resource-path.v1",
+        "path": [
+          "Arena/a"
+        ]
+      },
+      "discover_descendants": true
+    }
+  ],
+  "policy_digest_sha256": "90e3fc302f56fda223e27d3647c149e3c094276fcfab56ebfdd595f79154588f",
+  "catalog_digest_sha256": "0b283ec90e7e475b967802287a9fca76d3905de3d75ec4d0105da1980e846a1b",
+  "scopes": [
+    {
+      "resource_path": {
+        "schema": "devgraph.resource-path.v1",
+        "path": [
+          "Arena/a"
+        ]
+      },
+      "resource": "Arena/a",
+      "title": "A",
+      "parent": null
+    },
+    {
+      "resource_path": {
+        "schema": "devgraph.resource-path.v1",
+        "path": [
+          "Arena/a",
+          "Initiative/root-a"
+        ]
+      },
+      "resource": "Initiative/root-a",
+      "title": "Fixture",
+      "parent": "Arena/a"
+    },
+    {
+      "resource_path": {
+        "schema": "devgraph.resource-path.v1",
+        "path": [
+          "Arena/a",
+          "Initiative/root-a",
+          "Project/project-a"
+        ]
+      },
+      "resource": "Project/project-a",
+      "title": "Fixture",
+      "parent": "Initiative/root-a"
+    }
+  ],
+  "scope_semantics": "current_resources_at_access"
+}

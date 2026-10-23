@@ -1,0 +1,14 @@
+title = "Transfer source checks"
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Exact reviewed SHA-256 file checksums in provenance and synthetic fixture manifests; not credentials"
+regexTarget = "secret"
+regexes = [
+  '''^128ca1ffe2c191fe7e5be1ea72738539f9f35161480d773d33472e071c24bc9b$''',
+  '''^51c8f2d3cfb586b274e55327592852a2d994e93a72c225f4f6dc4b26ad79684d$''',
+  '''^6df4d7d1eacb28ef4158d6440183779244b100167e25f461c9406cab632f74fd$''',
+  '''^be370f64a9f4a080b5370b278355220f46f32ff32c04bf5710a8006d03cfec6c$''',
+  '''^f870bfb61d805b0057ee9f68a68ecd386f6f5b7b9ed9e561fc3efc038e1e00ba$''',
+]

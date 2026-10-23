@@ -1,0 +1,50 @@
+{
+  "schema": "zenith.local-service-vectors.v1",
+  "cases": [
+    {
+      "name": "private",
+      "accepted": true,
+      "raw": "{\"schema\":\"zenith.local-service.v1\",\"instance_id\":\"269b391b-d559-5f0d-9cd0-87162211e4ab\",\"resource_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"kind\":\"devgraph\",\"interface\":\"private-api\",\"name\":\"Actual graph\",\"endpoint\":\"http://127.0.0.1:8080\",\"connection\":null,\"updated_at\":100}"
+    },
+    {
+      "name": "wallet-one",
+      "accepted": true,
+      "raw": "{\"schema\":\"zenith.local-service.v1\",\"instance_id\":\"8b144dd5-d5ec-5972-b4f3-b5e55908f4ac\",\"resource_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"kind\":\"devgraph\",\"interface\":\"wallet-api\",\"name\":\"Actual graph\",\"endpoint\":\"https://127.0.0.1:19443\",\"connection\":{\"name\":\"Actual graph\",\"receiver\":\"https://127.0.0.1:19443\",\"issuer\":\"actual-issuer\",\"authority\":{\"issuer\":\"actual-issuer\",\"key_id\":\"read-key\",\"public_key\":\"1212121212121212121212121212121212121212121212121212121212121212\",\"receiver\":\"https://127.0.0.1:19443\",\"audience\":\"devgraph\"},\"network\":\"local\",\"tls_certificate_sha256\":\"abababababababababababababababababababababababababababababababab\"},\"updated_at\":100}"
+    },
+    {
+      "name": "wallet-two",
+      "accepted": true,
+      "raw": "{\"schema\":\"zenith.local-service.v1\",\"instance_id\":\"27006abc-b9fe-59a9-983c-d48ff75fc933\",\"resource_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"kind\":\"devgraph\",\"interface\":\"wallet-api\",\"name\":\"Actual graph\",\"endpoint\":\"https://127.0.0.1:19543\",\"connection\":{\"name\":\"Actual graph\",\"receiver\":\"https://127.0.0.1:19543\",\"issuer\":\"actual-issuer\",\"authority\":{\"issuer\":\"actual-issuer\",\"key_id\":\"read-key\",\"public_key\":\"1212121212121212121212121212121212121212121212121212121212121212\",\"receiver\":\"https://127.0.0.1:19543\",\"audience\":\"devgraph\"},\"network\":\"local\",\"tls_certificate_sha256\":\"abababababababababababababababababababababababababababababababab\"},\"updated_at\":100}"
+    },
+    {
+      "name": "wrong-instance",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-service.v1\",\"instance_id\":\"269b391b-d559-5f0d-9cd0-87162211e4ab\",\"resource_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"kind\":\"devgraph\",\"interface\":\"wallet-api\",\"name\":\"Actual graph\",\"endpoint\":\"https://127.0.0.1:19443\",\"connection\":{\"name\":\"Actual graph\",\"receiver\":\"https://127.0.0.1:19443\",\"issuer\":\"actual-issuer\",\"authority\":{\"issuer\":\"actual-issuer\",\"key_id\":\"read-key\",\"public_key\":\"1212121212121212121212121212121212121212121212121212121212121212\",\"receiver\":\"https://127.0.0.1:19443\",\"audience\":\"devgraph\"},\"network\":\"local\",\"tls_certificate_sha256\":\"abababababababababababababababababababababababababababababababab\"},\"updated_at\":100}"
+    },
+    {
+      "name": "extra-authority",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-service.v1\",\"instance_id\":\"8b144dd5-d5ec-5972-b4f3-b5e55908f4ac\",\"resource_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"kind\":\"devgraph\",\"interface\":\"wallet-api\",\"name\":\"Actual graph\",\"endpoint\":\"https://127.0.0.1:19443\",\"connection\":{\"name\":\"Actual graph\",\"receiver\":\"https://127.0.0.1:19443\",\"issuer\":\"actual-issuer\",\"authority\":{\"issuer\":\"actual-issuer\",\"key_id\":\"read-key\",\"public_key\":\"1212121212121212121212121212121212121212121212121212121212121212\",\"receiver\":\"https://127.0.0.1:19443\",\"audience\":\"devgraph\"},\"network\":\"local\",\"tls_certificate_sha256\":\"abababababababababababababababababababababababababababababababab\"},\"updated_at\":100,\"credential\":\"secret\"}"
+    },
+    {
+      "name": "wrong-graph",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-service.v1\",\"instance_id\":\"8b144dd5-d5ec-5972-b4f3-b5e55908f4ac\",\"resource_id\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"kind\":\"devgraph\",\"interface\":\"wallet-api\",\"name\":\"Actual graph\",\"endpoint\":\"https://127.0.0.1:19443\",\"connection\":{\"name\":\"Actual graph\",\"receiver\":\"https://127.0.0.1:19443\",\"issuer\":\"actual-issuer\",\"authority\":{\"issuer\":\"actual-issuer\",\"key_id\":\"read-key\",\"public_key\":\"1212121212121212121212121212121212121212121212121212121212121212\",\"receiver\":\"https://127.0.0.1:19443\",\"audience\":\"devgraph\"},\"network\":\"local\",\"tls_certificate_sha256\":\"abababababababababababababababababababababababababababababababab\"},\"updated_at\":100}"
+    },
+    {
+      "name": "wrong-receiver",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-service.v1\",\"instance_id\":\"8b144dd5-d5ec-5972-b4f3-b5e55908f4ac\",\"resource_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"kind\":\"devgraph\",\"interface\":\"wallet-api\",\"name\":\"Actual graph\",\"endpoint\":\"https://127.0.0.1:19443\",\"connection\":{\"name\":\"Actual graph\",\"receiver\":\"https://127.0.0.1:19543\",\"issuer\":\"actual-issuer\",\"authority\":{\"issuer\":\"actual-issuer\",\"key_id\":\"read-key\",\"public_key\":\"1212121212121212121212121212121212121212121212121212121212121212\",\"receiver\":\"https://127.0.0.1:19443\",\"audience\":\"devgraph\"},\"network\":\"local\",\"tls_certificate_sha256\":\"abababababababababababababababababababababababababababababababab\"},\"updated_at\":100}"
+    },
+    {
+      "name": "wallet-without-profile",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-service.v1\",\"instance_id\":\"8b144dd5-d5ec-5972-b4f3-b5e55908f4ac\",\"resource_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"kind\":\"devgraph\",\"interface\":\"wallet-api\",\"name\":\"Actual graph\",\"endpoint\":\"https://127.0.0.1:19443\",\"connection\":null,\"updated_at\":100}"
+    },
+    {
+      "name": "pretend-private",
+      "accepted": false,
+      "raw": "{\"schema\":\"zenith.local-service.v1\",\"instance_id\":\"8b144dd5-d5ec-5972-b4f3-b5e55908f4ac\",\"resource_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"kind\":\"devgraph\",\"interface\":\"private-api\",\"name\":\"Actual graph\",\"endpoint\":\"https://127.0.0.1:19443\",\"connection\":{\"name\":\"Actual graph\",\"receiver\":\"https://127.0.0.1:19443\",\"issuer\":\"actual-issuer\",\"authority\":{\"issuer\":\"actual-issuer\",\"key_id\":\"read-key\",\"public_key\":\"1212121212121212121212121212121212121212121212121212121212121212\",\"receiver\":\"https://127.0.0.1:19443\",\"audience\":\"devgraph\"},\"network\":\"local\",\"tls_certificate_sha256\":\"abababababababababababababababababababababababababababababababab\"},\"updated_at\":100}"
+    }
+  ]
+}
