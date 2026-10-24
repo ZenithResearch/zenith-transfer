@@ -62,6 +62,7 @@ extension TransferOperatorBridge {
         // configuration changes; never silently switch it to operator HTTP.
         localRPC = try LocalAdminRPC.discover(configuration: resource.configuration)
       }
+      else if resource.configuration.network == .tailscale { transport = HostTailscaleConnection().transport() }
       else { transport = try PrivateTransport(workServer: resource.configuration) }
       let root = try FileManager.default.url(for: .applicationSupportDirectory,
         in: .userDomainMask, appropriateFor: nil, create: true)

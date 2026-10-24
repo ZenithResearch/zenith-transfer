@@ -19,3 +19,6 @@ __pycache__/
 
 # Local UI screenshots, review logs and test-only preview binaries.
 artifacts/
+
+# Local Tailscale device-enrollment connection files are never source assets.
+*.tailscale-key

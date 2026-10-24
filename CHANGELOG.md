@@ -1,5 +1,10 @@
 ## Wallet sheet navigation — build38
 
+## Network onboarding · Transfer 39
+
+- Add Settings → Network file discovery, explicit import/review, protected Tailscale key-file creation and enrollment, and local DevGraph connection review/export so people can configure a fresh app without typing local URLs or using an assistant.
+- Keep network enrollment separate from public service settings and Wallet authority. Revalidate reviewed files, preserve existing connections, and use the verified host Tailscale route for remote Mac administration.
+
 - Add visible Close and Escape dismissal to the Settings account-unlock sheet.
 - Return to the retained account screen only after successful unlock.
 - Display closed, password-free unlock errors inline; leave security settings
