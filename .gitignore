@@ -22,3 +22,6 @@ __pycache__/
 artifacts/
 
 .test-tmp/
+
+# Local Tailscale device-enrollment connection files are never source assets.
+*.tailscale-key
