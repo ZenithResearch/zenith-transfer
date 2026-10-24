@@ -20,3 +20,5 @@ __pycache__/
 
 # Local UI screenshots, review logs and test-only preview binaries.
 artifacts/
+
+.test-tmp/

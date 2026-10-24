@@ -63,7 +63,7 @@ public struct WalletHomeContent: View {
     case .identities: return "Recovery identity and portable Wallet records"
     case .membership: return "Membership proofs · Wallet data backup"
     case .recovery: return backupVerified ? "Recovery checked" : "Check your recovery file"
-    case .access: return accessSummary
+    case .access: return "Reusable permissions · encrypted grant backup"
     case .security: return "Unlock method and automatic lock"
     case .about: return "Identity, connections and permissions"
     }

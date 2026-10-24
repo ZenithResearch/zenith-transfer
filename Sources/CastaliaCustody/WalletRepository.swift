@@ -141,7 +141,9 @@ public actor WalletRepository: WalletSession {
       throw WalletFailure.conflict
     }
   }
-  public func unlock(password: String, expectedLifecycle: UInt64? = nil, expectedIdentity: String? = nil) throws -> WalletState {
+  public func unlock(
+    password: String, expectedLifecycle: UInt64? = nil, expectedIdentity: String? = nil
+  ) throws -> WalletState {
     try Task.checkCancellation()
     let ticket = expectedLifecycle ?? lifecycle.ticket()
     try checkLifecycle(ticket)
@@ -151,7 +153,9 @@ public actor WalletRepository: WalletSession {
       as: WalletState.self)
     do {
       return try lifecycle.withCurrent(ticket) {
-        guard expectedIdentity == nil || state.publicKey == expectedIdentity else { throw WalletFailure.conflict }
+        guard expectedIdentity == nil || state.publicKey == expectedIdentity else {
+          throw WalletFailure.conflict
+        }
         return state
       }
     } catch {
@@ -244,18 +248,30 @@ public actor WalletRepository: WalletSession {
     try Task.checkCancellation()
     let current = try state()
     guard current.unlocked, let owner = current.publicKey else { throw WalletFailure.locked }
-    let identities = try WalletIdentitySection.decode(core.invoke(["operation": "wallet_identities"]))
+    let identities = try WalletIdentitySection.decode(
+      core.invoke(["operation": "wallet_identities"]))
     guard identities.ownerMemberKey == owner else { throw WalletIdentityError.ownerChanged }
     let accounts = try core.decode(["operation": "chain_accounts"], as: PublicAccounts.self)
-    return WalletIdentitySnapshot(section: identities, revision: current.revision, chainAccounts: accounts)
+    return WalletIdentitySnapshot(
+      section: identities, revision: current.revision, chainAccounts: accounts)
   }
-  public func prepareWalletIdentities(_ identities: WalletIdentitySection, expectedRevision: UInt64) throws -> RestorePreview {
-    try Task.checkCancellation(); try identities.validate()
-    let ticket = lifecycle.ticket(), current = try state()
-    guard current.unlocked, current.publicKey == identities.ownerMemberKey else { throw WalletFailure.locked }
+  public func prepareWalletIdentities(_ identities: WalletIdentitySection, expectedRevision: UInt64)
+    throws -> RestorePreview
+  {
+    try Task.checkCancellation()
+    try identities.validate()
+    let ticket = lifecycle.ticket()
+    let current = try state()
+    guard current.unlocked, current.publicKey == identities.ownerMemberKey else {
+      throw WalletFailure.locked
+    }
     guard current.revision == expectedRevision else { throw WalletFailure.conflict }
     let raw = try JSONSerialization.jsonObject(with: JSONEncoder().encode(identities))
-    return try prepare(["operation": "prepare_wallet_identities", "identities": raw, "expected_revision": expectedRevision], ticket: ticket)
+    return try prepare(
+      [
+        "operation": "prepare_wallet_identities", "identities": raw,
+        "expected_revision": expectedRevision,
+      ], ticket: ticket)
   }
   public func dataSummary() throws -> Data { try core.invoke(["operation": "data_summary"]) }
   /// The portable membership payload, without installation/session state.
@@ -264,8 +280,82 @@ public actor WalletRepository: WalletSession {
       struct Contents: Decodable { let sections: PortableSections }
       let contents: Contents?
     }
-    return try JSONDecoder().decode(Summary.self, from: dataSummary()).contents?.sections.proofs ?? []
+    return try JSONDecoder().decode(Summary.self, from: dataSummary()).contents?.sections.proofs
+      ?? []
   }
+  public func holderGrantSummaries() async throws -> [HolderGrantSummary] {
+    struct List: Decodable { let grants: [HolderGrantSummary] }
+    return try core.decode(["operation": "holder_grants"], as: List.self).grants
+  }
+  public func holderGrant(service: String, now: UInt64) async throws -> Data {
+    try core.invoke(["operation": "holder_grant", "service": service, "now": now])
+  }
+  public func reviewHolderGrant(_ grant: Data, pin: HolderIssuerPin, now: UInt64) async throws
+    -> HolderGrantReview
+  {
+    let ticket = lifecycle.ticket()
+    let summary = try core.decode(
+      [
+        "operation": "review_holder_grant", "grant": JSONSerialization.jsonObject(with: grant),
+        "pin": JSONSerialization.jsonObject(with: JSONEncoder().encode(pin)), "now": now,
+      ], as: HolderGrantSummary.self)
+    try checkLifecycle(ticket)
+    return HolderGrantReview(grant: grant, pin: pin, summary: summary, lifecycle: ticket)
+  }
+  public func saveHolderGrant(_ review: HolderGrantReview, now: UInt64) async throws {
+    try checkLifecycle(review.lifecycle)
+    let preview = try core.decode(
+      [
+        "operation": "prepare_holder_grant",
+        "grant": JSONSerialization.jsonObject(with: review.grant),
+        "pin": JSONSerialization.jsonObject(with: JSONEncoder().encode(review.pin)), "now": now,
+      ], as: RestorePreview.self)
+    _ = try commit(preview, ticket: review.lifecycle)
+  }
+  public func deriveHolderCredential(
+    service: String, permissions: Data?, expires: UInt64, now: UInt64
+  ) async throws -> Data {
+    let ticket = lifecycle.ticket()
+    let selected: Any =
+      try permissions.map { try JSONSerialization.jsonObject(with: $0) } ?? NSNull()
+    let result = try core.invoke([
+      "operation": "derive_holder_credential", "service": service, "permissions": selected,
+      "expires_at": expires, "now": now,
+    ])
+    try checkLifecycle(ticket)
+    return result
+  }
+  public func presentHolderCredential(service: String, credential: Data, call: Data, now: UInt64)
+    async throws -> Data
+  {
+    let ticket = lifecycle.ticket()
+    let result = try core.invoke([
+      "operation": "present_holder_credential", "service": service,
+      "credential": JSONSerialization.jsonObject(with: credential),
+      "call": JSONSerialization.jsonObject(with: call), "now": now,
+    ])
+    try checkLifecycle(ticket)
+    return result
+  }
+  public func forgetHolderGrant(service: String) async throws {
+    let ticket = lifecycle.ticket()
+    let preview = try core.decode(
+      ["operation": "forget_holder_grant", "service": service], as: RestorePreview.self)
+    _ = try commit(preview, ticket: ticket)
+  }
+  public func exportHolderGrantBackup() async throws -> Data {
+    struct File: Decodable { let file: String }
+    return Data(
+      try core.decode(["operation": "export_holder_grant_backup"], as: File.self).file.utf8)
+  }
+  public func prepareHolderGrantBackup(_ file: Data) async throws -> RestorePreview {
+    let ticket = lifecycle.ticket()
+    guard file.count <= 1_048_576, let text = String(data: file, encoding: .utf8) else {
+      throw WalletFailure.invalidFile
+    }
+    return try prepare(["operation": "prepare_holder_grant_backup", "file": text], ticket: ticket)
+  }
+
   public func readAccessIdentity() throws -> Data {
     try core.invoke(["operation": "read_access_identity"])
   }
@@ -292,42 +382,66 @@ public actor WalletRepository: WalletSession {
       ], as: RestorePreview.self)
     _ = try commit(preview, ticket: ticket)
   }
-  public func prepareAccessRequest(_ challenge: Data, pin: ReadAuthorityPin, now: UInt64) throws -> NativeAccessRequestPreview {
+  public func prepareAccessRequest(_ challenge: Data, pin: ReadAuthorityPin, now: UInt64) throws
+    -> NativeAccessRequestPreview
+  {
     try Task.checkCancellation()
     let ticket = lifecycle.ticket()
-    guard let text = String(data: challenge, encoding: .utf8) else { throw WalletFailure.invalidFile }
-    let result = try core.decode(["operation":"prepare_access_request","challenge":text,
-      "pin":JSONSerialization.jsonObject(with:JSONEncoder().encode(pin)),"now":now], as:NativeAccessRequestPreview.self)
+    guard let text = String(data: challenge, encoding: .utf8) else {
+      throw WalletFailure.invalidFile
+    }
+    let result = try core.decode(
+      [
+        "operation": "prepare_access_request", "challenge": text,
+        "pin": JSONSerialization.jsonObject(with: JSONEncoder().encode(pin)), "now": now,
+      ], as: NativeAccessRequestPreview.self)
     try checkLifecycle(ticket)
     return result
   }
-  public func approveAccessRequest(_ preview: NativeAccessRequestPreview, now: UInt64, ticket: UInt64) throws -> Data {
+  public func approveAccessRequest(
+    _ preview: NativeAccessRequestPreview, now: UInt64, ticket: UInt64
+  ) throws -> Data {
     try Task.checkCancellation()
     try checkLifecycle(ticket)
-    let result = try core.invoke(["operation":"approve_access_request","token":preview.token,"now":now])
+    let result = try core.invoke([
+      "operation": "approve_access_request", "token": preview.token, "now": now,
+    ])
     try checkLifecycle(ticket)
     return result
   }
-  public func approveReadCredential(_ challenge: Data, pin: ReadAuthorityPin, now: UInt64) throws -> Data {
+  public func approveReadCredential(_ challenge: Data, pin: ReadAuthorityPin, now: UInt64) throws
+    -> Data
+  {
     let ticket = lifecycle.ticket()
-    guard let text = String(data: challenge, encoding: .utf8) else { throw WalletFailure.invalidFile }
-    let result = try core.invoke(["operation":"approve_read_credential", "challenge":text,
-      "pin":JSONSerialization.jsonObject(with: JSONEncoder().encode(pin)), "now":now])
+    guard let text = String(data: challenge, encoding: .utf8) else {
+      throw WalletFailure.invalidFile
+    }
+    let result = try core.invoke([
+      "operation": "approve_read_credential", "challenge": text,
+      "pin": JSONSerialization.jsonObject(with: JSONEncoder().encode(pin)), "now": now,
+    ])
     try checkLifecycle(ticket)
     return result
   }
-  public func storeReadCredential(requestID: String, credential: Data, now: UInt64, ticket: UInt64) throws {
+  public func storeReadCredential(requestID: String, credential: Data, now: UInt64, ticket: UInt64)
+    throws
+  {
     try checkLifecycle(ticket)
-    let preview = try core.decode(["operation":"store_read_credential", "request_id":requestID,
-      "credential":JSONSerialization.jsonObject(with: credential), "now":now], as: RestorePreview.self)
+    let preview = try core.decode(
+      [
+        "operation": "store_read_credential", "request_id": requestID,
+        "credential": JSONSerialization.jsonObject(with: credential), "now": now,
+      ], as: RestorePreview.self)
     _ = try commit(preview, ticket: ticket)
   }
   public func readCredential(receiver: String, now: UInt64) throws -> Data {
-    try core.invoke(["operation":"read_credential", "receiver":receiver, "now":now])
+    try core.invoke(["operation": "read_credential", "receiver": receiver, "now": now])
   }
   public func signReadCall(receiver: String, call: Data, now: UInt64) throws -> Data {
-    try core.invoke(["operation":"sign_read_call", "receiver":receiver,
-      "call":JSONSerialization.jsonObject(with: call), "now":now])
+    try core.invoke([
+      "operation": "sign_read_call", "receiver": receiver,
+      "call": JSONSerialization.jsonObject(with: call), "now": now,
+    ])
   }
 
   // Explicit opt-in graph protocol v2. Do not silently fall back to legacy APIs.
@@ -338,76 +452,120 @@ public actor WalletRepository: WalletSession {
       let owner = identity["subject_public_key"], let installation = identity["installation_id"]
     else { throw WalletFailure.core("wallet_update_required") }
     // The native API marker is local capability metadata, not a server field.
-    return try JSONSerialization.data(withJSONObject: ["subject_public_key":owner,"installation_id":installation])
+    return try JSONSerialization.data(withJSONObject: [
+      "subject_public_key": owner, "installation_id": installation,
+    ])
   }
-  public func prepareGraphAccessRequestV2(_ challenge: Data, pin: ReadAuthorityPin, now: UInt64) throws -> NativeAccessRequestPreview {
+  public func prepareGraphAccessRequestV2(_ challenge: Data, pin: ReadAuthorityPin, now: UInt64)
+    throws -> NativeAccessRequestPreview
+  {
     try Task.checkCancellation()
     let ticket = lifecycle.ticket()
-    guard let text = String(data: challenge, encoding: .utf8) else { throw WalletFailure.invalidFile }
-    let result = try core.decode(["operation":"prepare_graph_access_request_v2","challenge":text,
-      "pin":JSONSerialization.jsonObject(with:JSONEncoder().encode(pin)),"now":now], as:NativeAccessRequestPreview.self)
+    guard let text = String(data: challenge, encoding: .utf8) else {
+      throw WalletFailure.invalidFile
+    }
+    let result = try core.decode(
+      [
+        "operation": "prepare_graph_access_request_v2", "challenge": text,
+        "pin": JSONSerialization.jsonObject(with: JSONEncoder().encode(pin)), "now": now,
+      ], as: NativeAccessRequestPreview.self)
     try checkLifecycle(ticket)
     return result
   }
-  public func approveGraphAccessRequestV2(_ preview: NativeAccessRequestPreview, now: UInt64, ticket: UInt64) throws -> Data {
+  public func approveGraphAccessRequestV2(
+    _ preview: NativeAccessRequestPreview, now: UInt64, ticket: UInt64
+  ) throws -> Data {
     try Task.checkCancellation()
     try checkLifecycle(ticket)
-    let result = try core.invoke(["operation":"approve_graph_access_request_v2","token":preview.token,"now":now])
+    let result = try core.invoke([
+      "operation": "approve_graph_access_request_v2", "token": preview.token, "now": now,
+    ])
     try checkLifecycle(ticket)
     return result
   }
   #if os(macOS)
-  /// First-owner consent is a separate protocol and never a member credential.
-  public func prepareResourceOwner(_ challenge: Data, binding: ResourceOwnerBinding, now: UInt64) throws -> ResourceOwnerConsent {
-    try Task.checkCancellation()
-    let ticket = lifecycle.ticket()
-    guard try state().resourceOwnerProtocol == "zenith.resource-owner.v1",
-      let text = String(data: challenge, encoding: .utf8) else { throw WalletFailure.core("owner_update_required") }
-    let checked = try ResourceOwnerChallenge.decode(challenge, binding: binding, now: now)
-    guard try state().publicKey == checked.adminGrant.holderPublicKey else { throw OwnerSetupError.changed }
-    let result = try core.invoke(["operation":"prepare_resource_owner_v1", "challenge":text,
-      "binding":JSONSerialization.jsonObject(with:JSONEncoder().encode(binding)), "now":now])
-    let consent = try ResourceOwnerConsent.decode(result, challenge: checked, lifecycle: ticket)
-    try checkLifecycle(ticket); return consent
-  }
-  public func approveResourceOwner(_ consent: ResourceOwnerConsent, now: UInt64) throws -> Data {
-    try Task.checkCancellation(); try checkLifecycle(consent.lifecycle)
-    let result = try core.invoke(["operation":"approve_resource_owner_v1", "token":consent.token, "now":now])
-    try consent.challenge.validateProof(result)
-    try checkLifecycle(consent.lifecycle); return result
-  }
+    /// First-owner consent is a separate protocol and never a member credential.
+    public func prepareResourceOwner(_ challenge: Data, binding: ResourceOwnerBinding, now: UInt64)
+      throws -> ResourceOwnerConsent
+    {
+      try Task.checkCancellation()
+      let ticket = lifecycle.ticket()
+      guard try state().resourceOwnerProtocol == "zenith.resource-owner.v1",
+        let text = String(data: challenge, encoding: .utf8)
+      else { throw WalletFailure.core("owner_update_required") }
+      let checked = try ResourceOwnerChallenge.decode(challenge, binding: binding, now: now)
+      guard try state().publicKey == checked.adminGrant.holderPublicKey else {
+        throw OwnerSetupError.changed
+      }
+      let result = try core.invoke([
+        "operation": "prepare_resource_owner_v1", "challenge": text,
+        "binding": JSONSerialization.jsonObject(with: JSONEncoder().encode(binding)), "now": now,
+      ])
+      let consent = try ResourceOwnerConsent.decode(result, challenge: checked, lifecycle: ticket)
+      try checkLifecycle(ticket)
+      return consent
+    }
+    public func approveResourceOwner(_ consent: ResourceOwnerConsent, now: UInt64) throws -> Data {
+      try Task.checkCancellation()
+      try checkLifecycle(consent.lifecycle)
+      let result = try core.invoke([
+        "operation": "approve_resource_owner_v1", "token": consent.token, "now": now,
+      ])
+      try consent.challenge.validateProof(result)
+      try checkLifecycle(consent.lifecycle)
+      return result
+    }
   #endif
   /// Separate native operator capability. Never fall back to member consent.
-  public func prepareOperatorAccess(_ challenge: Data, pin: ReadAuthorityPin, now: UInt64) throws -> OperatorConsent {
+  public func prepareOperatorAccess(_ challenge: Data, pin: ReadAuthorityPin, now: UInt64) throws
+    -> OperatorConsent
+  {
     let ticket = lifecycle.ticket()
     guard try state().operatorAccessProtocol == "castalia.operator-access.v1",
-      let text = String(data: challenge, encoding: .utf8) else { throw WalletFailure.core("operator_update_required") }
-    let data = try core.invoke(["operation":"prepare_operator_access_v1","challenge":text,
-      "pin":JSONSerialization.jsonObject(with:JSONEncoder().encode(pin)),"now":now])
+      let text = String(data: challenge, encoding: .utf8)
+    else { throw WalletFailure.core("operator_update_required") }
+    let data = try core.invoke([
+      "operation": "prepare_operator_access_v1", "challenge": text,
+      "pin": JSONSerialization.jsonObject(with: JSONEncoder().encode(pin)), "now": now,
+    ])
     let value = try JSONDecoder().decode(OperatorConsent.self, from: data)
-    guard value.summary.native_protocol == "castalia.operator-access.v1" else { throw WalletFailure.invalidFile }
+    guard value.summary.native_protocol == "castalia.operator-access.v1" else {
+      throw WalletFailure.invalidFile
+    }
     try checkLifecycle(ticket)
     return OperatorConsent(token: value.token, summary: value.summary, lifecycle: ticket)
   }
   public func approveOperatorAccess(_ consent: OperatorConsent, now: UInt64) throws -> Data {
-    try Task.checkCancellation(); try checkLifecycle(consent.lifecycle)
-    let result = try core.invoke(["operation":"approve_operator_access_v1","token":consent.token,"now":now])
-    try checkLifecycle(consent.lifecycle); return result
+    try Task.checkCancellation()
+    try checkLifecycle(consent.lifecycle)
+    let result = try core.invoke([
+      "operation": "approve_operator_access_v1", "token": consent.token, "now": now,
+    ])
+    try checkLifecycle(consent.lifecycle)
+    return result
   }
-  public func approveGraphReadCredentialV2(_ challenge: Data, pin: ReadAuthorityPin, now: UInt64) throws -> Data {
+  public func approveGraphReadCredentialV2(_ challenge: Data, pin: ReadAuthorityPin, now: UInt64)
+    throws -> Data
+  {
     let ticket = lifecycle.ticket()
-    guard let text = String(data: challenge, encoding: .utf8) else { throw WalletFailure.invalidFile }
-    let result = try core.invoke(["operation":"approve_graph_read_credential_v2", "challenge":text,
-      "pin":JSONSerialization.jsonObject(with: JSONEncoder().encode(pin)), "now":now])
+    guard let text = String(data: challenge, encoding: .utf8) else {
+      throw WalletFailure.invalidFile
+    }
+    let result = try core.invoke([
+      "operation": "approve_graph_read_credential_v2", "challenge": text,
+      "pin": JSONSerialization.jsonObject(with: JSONEncoder().encode(pin)), "now": now,
+    ])
     try checkLifecycle(ticket)
     return result
   }
   public func graphReadCredentialV2(receiver: String, now: UInt64) throws -> Data {
-    try core.invoke(["operation":"graph_read_credential_v2", "receiver":receiver, "now":now])
+    try core.invoke(["operation": "graph_read_credential_v2", "receiver": receiver, "now": now])
   }
   public func signGraphReadCallV2(receiver: String, call: Data, now: UInt64) throws -> Data {
-    try core.invoke(["operation":"sign_graph_read_call_v2", "receiver":receiver,
-      "call":JSONSerialization.jsonObject(with: call), "now":now])
+    try core.invoke([
+      "operation": "sign_graph_read_call_v2", "receiver": receiver,
+      "call": JSONSerialization.jsonObject(with: call), "now": now,
+    ])
   }
   public func readAccess(receiver: String, now: UInt64) throws -> Data {
     try core.invoke(["operation": "read_access", "receiver": receiver, "now": now])

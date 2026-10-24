@@ -12,6 +12,10 @@ for crate in ['castalia-wallet-core', 'castalia-wallet-native', 'castalia-wallet
         p for p in (root / 'crates' / crate).rglob('*')
         if p.is_file() and (p.suffix in ['.rs', '.toml', '.h', '.modulemap'] or p.name == 'LICENSE')
     )
+shared_contract = root / 'vendor' / 'secs-grant-contract'
+if shared_contract.is_dir():
+    files.extend(p for p in shared_contract.rglob('*')
+                 if p.is_file() and (p.suffix in ['.rs', '.toml', '.json'] or p.name == 'LICENSE'))
 hashes = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(set(files))}
 manifest = {
     'schema': 'zenith.ios-core-build.v1',

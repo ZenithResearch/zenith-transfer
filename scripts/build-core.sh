@@ -10,15 +10,20 @@ case "${ZENITH_CARGO_OFFLINE:-0}" in
   *) echo 'ZENITH_CARGO_OFFLINE must be 0 or 1' >&2; exit 2 ;;
 esac
 wallet_source=$(cd "$1" && pwd)
+wallet_origin=$(git -C "$wallet_source" remote get-url origin)
+case "$wallet_origin" in
+  https://github.com/ZenithResearch/castalia-wallet|https://github.com/ZenithResearch/castalia-wallet.git|git@github.com:ZenithResearch/castalia-wallet.git) ;;
+  *) echo 'Wallet source must use the canonical ZenithResearch/castalia-wallet origin' >&2; exit 2 ;;
+esac
 app_root=$(cd "$(dirname "$0")/.." && pwd)
 expected=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["wallet"]["revision"])' "$app_root/Dependencies.json")
 if [ "$(git -C "$wallet_source" rev-parse HEAD)" != "$expected" ]; then
   echo 'Wallet checkout does not match Dependencies.json' >&2; exit 2
 fi
-git -C "$wallet_source" diff --exit-code HEAD -- Cargo.toml Cargo.lock crates/castalia-wallet-core crates/castalia-wallet-native crates/castalia-wallet-presentation contracts/portable-web >/dev/null || {
+git -C "$wallet_source" diff --exit-code HEAD -- Cargo.toml Cargo.lock crates/castalia-wallet-core crates/castalia-wallet-native crates/castalia-wallet-presentation vendor/secs-grant-contract contracts/portable-web >/dev/null || {
   echo 'Wallet build inputs differ from the pinned commit' >&2; exit 2;
 }
-if [ -n "$(git -C "$wallet_source" ls-files --others --exclude-standard -- crates/castalia-wallet-core crates/castalia-wallet-native crates/castalia-wallet-presentation)" ]; then
+if [ -n "$(git -C "$wallet_source" ls-files --others --exclude-standard -- crates/castalia-wallet-core crates/castalia-wallet-native crates/castalia-wallet-presentation vendor/secs-grant-contract)" ]; then
   echo 'Wallet build inputs include untracked files' >&2; exit 2
 fi
 wallet_target_dir=$(cargo metadata --manifest-path "$wallet_source/Cargo.toml" --no-deps --format-version 1 "${resolution_flags[@]}" | python3 -c 'import json,sys;print(json.load(sys.stdin)["target_directory"])')

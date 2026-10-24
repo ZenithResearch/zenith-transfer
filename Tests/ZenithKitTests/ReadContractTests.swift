@@ -1,7 +1,7 @@
-@testable import CastaliaCustody
 import CryptoKit
 import XCTest
 
+@testable import CastaliaCustody
 @testable import ZenithKit
 
 private func json(_ value: Any) throws -> Data {
@@ -65,6 +65,10 @@ private final class ReadBackend {
   var rejectAccessPreparation = false
   var accessRequestID: String?
   var wrongResultVersion = false
+  var reusable = false
+  var rootIssueCount = 0
+  var submittedRootBodies: [Data] = []
+  var loseRootResponse = false
   var statusCode = 200
   init(_ version: WorkReadProtocol) throws {
     self.version = version
@@ -78,6 +82,16 @@ private final class ReadBackend {
     }
   }
   func respond(_ request: URLRequest) throws -> Data {
+    if request.url?.path == "/monitor/wallet-access/v1" {
+      return try json(
+        reusable
+          ? [
+            "holder_grants": [
+              "schema": "secs.holder-grant.v1", "service": "service:fixture",
+              "endpoint": "/monitor/wallet-access/v1/grants",
+            ]
+          ] : [:])
+    }
     var body = request.httpBody ?? Data()
     if let stream = request.httpBodyStream {
       stream.open()
@@ -93,33 +107,103 @@ private final class ReadBackend {
     let input = try object(body)
     switch request.url!.path {
     case "/devgraph/access-requests/v2/challenges":
-      statusCode=200
-      if rejectAccessPreparation { statusCode=400;return try json(["error":"invalid_access_request"]) }
-      let action=try XCTUnwrap(input["request"] as? [String:Any])
+      statusCode = 200
+      if rejectAccessPreparation {
+        statusCode = 400
+        return try json(["error": "invalid_access_request"])
+      }
+      let action = try XCTUnwrap(input["request"] as? [String: Any])
       accessActions.append(try XCTUnwrap(action["action"] as? String))
-      let now=UInt64(Date().timeIntervalSince1970)
-      challenge=["schema":"castalia.access-request-challenge.v1","challenge_id":String(repeating:"aa",count:16),
-        "nonce":String(repeating:"A",count:43),"issuer":"fixture","receiver":"https://example.test",
-        "subject_public_key":action["subject_public_key"]!,"installation_id":action["installation_id"]!,
-        "operation":action["action"] as? String == "submit" ? "access.request":"access.status",
-        "issued_at":now,"expires_at":now+120,"details":action]
+      let now = UInt64(Date().timeIntervalSince1970)
+      challenge = [
+        "schema": "castalia.access-request-challenge.v1",
+        "challenge_id": String(repeating: "aa", count: 16),
+        "nonce": String(repeating: "A", count: 43), "issuer": "fixture",
+        "receiver": "https://example.test",
+        "subject_public_key": action["subject_public_key"]!,
+        "installation_id": action["installation_id"]!,
+        "operation": action["action"] as? String == "submit" ? "access.request" : "access.status",
+        "issued_at": now, "expires_at": now + 120, "details": action,
+      ]
       return try json(challenge)
     case "/devgraph/access-requests/v2/actions":
-      let approved=try XCTUnwrap(input["challenge"] as? [String:Any])
-      XCTAssertEqual(try json(approved),try json(challenge))
+      let approved = try XCTUnwrap(input["challenge"] as? [String: Any])
+      XCTAssertEqual(try json(approved), try json(challenge))
       XCTAssertNotNil(input["proof"])
-      let publicKey=try Curve25519.Signing.PublicKey(rawRepresentation:data(hex:XCTUnwrap(approved["subject_public_key"] as? String)))
-      let encoded=try XCTUnwrap(input["signature"] as? String)
-      let signature=try XCTUnwrap(Data(base64Encoded:encoded.replacingOccurrences(of:"-",with:"+").replacingOccurrences(of:"_",with:"/")+"=="))
-      XCTAssertTrue(publicKey.isValidSignature(signature,for:Data("castalia/access-request-approval/v1\0".utf8)+(try json(approved))))
-      let action=try XCTUnwrap(approved["details"] as? [String:Any])
-      let identifier=try XCTUnwrap(action["request_id"] as? String)
-      if action["action"] as? String == "submit" { submitCount += 1; accessRequestID=identifier }
-      if failSubmittedResponse { failSubmittedResponse=false; statusCode=503 }
-      return try json(["schema":"devgraph.access-request-result.v1","request_id":identifier,"status":accessRequestID == identifier ? "pending":"unknown","authority_issued":false])
+      let publicKey = try Curve25519.Signing.PublicKey(
+        rawRepresentation: data(hex: XCTUnwrap(approved["subject_public_key"] as? String)))
+      let encoded = try XCTUnwrap(input["signature"] as? String)
+      let signature = try XCTUnwrap(
+        Data(
+          base64Encoded: encoded.replacingOccurrences(of: "-", with: "+").replacingOccurrences(
+            of: "_", with: "/") + "=="))
+      XCTAssertTrue(
+        publicKey.isValidSignature(
+          signature, for: Data("castalia/access-request-approval/v1\0".utf8) + (try json(approved)))
+      )
+      let action = try XCTUnwrap(approved["details"] as? [String: Any])
+      let identifier = try XCTUnwrap(action["request_id"] as? String)
+      if action["action"] as? String == "submit" {
+        submitCount += 1
+        accessRequestID = identifier
+      }
+      if failSubmittedResponse {
+        failSubmittedResponse = false
+        statusCode = 503
+      }
+      return try json([
+        "schema": "devgraph.access-request-result.v1", "request_id": identifier,
+        "status": accessRequestID == identifier ? "pending" : "unknown", "authority_issued": false,
+      ])
     case "/devgraph/native-read/v2/challenges":
       challenge = try makeChallenge(identity: input)
       return try json(challenge)
+    case "/monitor/wallet-access/v1/grants":
+      submittedRootBodies.append(body)
+      XCTAssertEqual(try json(input["challenge"]!), try json(challenge))
+      rootIssueCount += 1
+      let now = UInt64(Date().timeIntervalSince1970)
+      let permissions = try XCTUnwrap(policy["permissions"] as? [[String: Any]]).map {
+        original -> [String: Any] in
+        var p = original
+        var c = p["constraints"] as! [String: Any]
+        let paths = c.removeValue(forKey: "resource_paths") as? [[String: Any]]
+        p["constraints"] = c
+        p["scope"] =
+          paths.map { values in
+            [
+              "mode": "paths",
+              "roots": values.map { value in
+                (value["path"] as! [String]).map { anchor in
+                  let pair = anchor.split(separator: "/", maxSplits: 1)
+                  return ["kind": String(pair[0]), "id": String(pair[1])]
+                }
+              },
+            ] as [String: Any]
+          } ?? ["mode": "all"]
+        return p
+      }
+      let claims: [String: Any] = [
+        "schema": "secs.holder-grant.v1", "grant_id": String(repeating: "11", count: 16),
+        "revision": String(repeating: "22", count: 32), "issuer": "fixture", "key_id": "test-key",
+        "service": "service:fixture", "holder_public_key": challenge["subject_public_key"]!,
+        "installation_id": challenge["installation_id"]!,
+        "validity": [
+          "schema": "castalia.grant-validity.v1", "mode": "until_revoked", "not_before": now - 1,
+        ], "max_credential_lifetime_seconds": 600, "onward_delegation": false,
+        "permissions": permissions,
+      ]
+      let root: [String: Any] = [
+        "claims": claims,
+        "signature": hex(
+          try issuer.signature(
+            for: Data("secs.holder-grant.v1/signature\0".utf8) + (try json(claims)))),
+      ]
+      if loseRootResponse {
+        loseRootResponse = false
+        throw URLError(.networkConnectionLost)
+      }
+      return try json(["schema": "devgraph.holder-grant-result.v1", "grant": root])
     case "/devgraph/native-read/v2/enrollments":
       let approved = try XCTUnwrap(input["challenge"] as? [String: Any])
       XCTAssertEqual(try json(approved), try json(challenge))
@@ -155,6 +239,26 @@ private final class ReadBackend {
         "credential": credential, "manifest": [:],
       ])
     case version.requestPath:
+      let incoming = try XCTUnwrap(input["credential"] as? [String: Any])
+      let reusableClaims = incoming["claims"] as? [String: Any]
+      let isReusable = reusableClaims?["schema"] as? String == "secs.holder-credential.v1"
+      if isReusable {
+        credential = incoming
+        let c = try XCTUnwrap(reusableClaims)
+        let root = try XCTUnwrap(incoming["grant"] as? [String: Any])
+        let claims = try XCTUnwrap(root["claims"] as? [String: Any])
+        XCTAssertTrue(
+          issuer.publicKey.isValidSignature(
+            try data(hex: XCTUnwrap(root["signature"] as? String)),
+            for: Data("secs.holder-grant.v1/signature\0".utf8) + (try json(claims))))
+        let holder = try Curve25519.Signing.PublicKey(
+          rawRepresentation: data(hex: XCTUnwrap(c["holder_public_key"] as? String)))
+        XCTAssertTrue(
+          holder.isValidSignature(
+            try data(hex: XCTUnwrap(incoming["signature"] as? String)),
+            for: Data("secs.holder-credential.v1/signature\0".utf8) + (try json(c))))
+        XCTAssertEqual(c["grant_digest"] as? String, hex(SHA256.hash(data: try json(root))))
+      }
       XCTAssertEqual(try json(input["credential"]!), try json(credential))
       let call = try XCTUnwrap(input["call"] as? [String: Any])
       calls.append(call)
@@ -167,7 +271,11 @@ private final class ReadBackend {
         proof["credential_digest"] as? String, hex(SHA256.hash(data: try json(credential))))
       XCTAssertTrue(
         key.isValidSignature(
-          signature, for: Data("castalia.read-presentation.v1/signature\0".utf8) + (try json(proof))
+          signature,
+          for: Data(
+            (isReusable
+              ? "secs.holder-presentation.v1/signature\0"
+              : "castalia.read-presentation.v1/signature\0").utf8) + (try json(proof))
         ))
       if version == .nativeV2 {
         let item: [String: Any] = [
@@ -193,7 +301,9 @@ private final class ReadBackend {
     }
     if version == .pathV4 {
       grant["schema"] = "devgraph.path-read-grant.v1"
-      grant["resource_paths"] = [["schema":"devgraph.resource-path.v1","path":["Arena/research","Project/test"]]]
+      grant["resource_paths"] = [
+        ["schema": "devgraph.resource-path.v1", "path": ["Arena/research", "Project/test"]]
+      ]
     }
     let operations = grant["operations"] as! [String]
     let permissions = operations.map {
@@ -234,6 +344,46 @@ private func data(hex: String) throws -> Data {
 }
 
 final class ReadContractTests: XCTestCase {
+  func testReusableGrantReviewSaveReloadAndSelfDerivedReadAcrossNativeCore() async throws {
+    let backend = try ReadBackend(.pathV4)
+    backend.reusable = true
+    ReadProtocolStub.use(backend)
+    defer { ReadProtocolStub.use(nil) }
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let repository = try WalletRepository(directory: directory)
+    _ = try await repository.create(password: "disposable grant password")
+    let backup = try await repository.exportRecovery(password: "disposable backup password")
+    _ = try await repository.verifyBackup(file: backup, password: "disposable backup password")
+    let session = URLSessionConfiguration.ephemeral
+    session.protocolClasses = [ReadProtocolStub.self]
+    let client = try DevgraphReadClient(
+      repository: repository, configuration: backend.config,
+      transport: PrivateTransport(configuration: session))
+    let review = try await client.requestReusableGrant(client.prepare())
+    XCTAssertFalse(review.summary.onward_delegation)
+    XCTAssertEqual(review.summary.service, "service:fixture")
+    let before = try await repository.holderGrantSummaries()
+    XCTAssertTrue(before.isEmpty)
+    try await client.saveReusableGrant(review)
+    let saved = try await repository.holderGrantSummaries()
+    XCTAssertEqual(saved.count, 1)
+    _ = try await client.page(kind: "Todo")
+    let grantBackup = try await repository.exportHolderGrantBackup()
+    XCTAssertFalse(String(decoding: grantBackup, as: UTF8.self).contains("holder_public_key"))
+    await repository.lock()
+    _ = try await repository.unlock(password: "disposable grant password")
+    _ = try await client.page(kind: "Todo")
+    XCTAssertEqual(
+      backend.rootIssueCount, 1, "Read reuse must derive in Wallet, without asking the issuer again"
+    )
+    let manifest = try await client.manifest()
+    XCTAssertEqual(manifest.readProtocol, .pathV4)
+    let preview = try await repository.prepareHolderGrantBackup(grantBackup)
+    XCTAssertEqual(preview.holderGrants?.count, 1)
+    await repository.cancel()
+  }
+
   func testProducerPagesPreserveCanonicalProgressMetadataAndSnapshotCursor() throws {
     let vectors = try fixture()
     let first = try decodeMonitorPage(json(vectors["page"]!), kind: "Todo", after: nil)
@@ -302,28 +452,33 @@ final class ReadContractTests: XCTestCase {
   }
   func testNativeV2GraphAccessWithoutCommunityMembership() async throws {
     let backend = try ReadBackend(.pathV4)
-    ReadProtocolStub.use(backend); defer { ReadProtocolStub.use(nil) }
+    ReadProtocolStub.use(backend)
+    defer { ReadProtocolStub.use(nil) }
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let repository = try WalletRepository(directory: directory)
     _ = try await repository.create(password: "disposable graph access password")
     let backup = try await repository.exportRecovery(password: "disposable recovery password")
-    let state = try await repository.verifyBackup(file: backup, password: "disposable recovery password")
+    let state = try await repository.verifyBackup(
+      file: backup, password: "disposable recovery password")
     XCTAssertEqual(state.graphAccessProtocol, "castalia.graph-access.v2")
     XCTAssertTrue(state.canRequestWorkAccess)
     XCTAssertFalse(state.membershipActive)
     let identity = try object(await repository.graphAccessIdentityV2())
-    XCTAssertEqual(Set(identity.keys), ["subject_public_key","installation_id"])
-    let session = URLSessionConfiguration.ephemeral; session.protocolClasses = [ReadProtocolStub.self]
-    let client = try DevgraphReadClient(repository: repository,configuration: backend.config,transport: PrivateTransport(configuration: session))
+    XCTAssertEqual(Set(identity.keys), ["subject_public_key", "installation_id"])
+    let session = URLSessionConfiguration.ephemeral
+    session.protocolClasses = [ReadProtocolStub.self]
+    let client = try DevgraphReadClient(
+      repository: repository, configuration: backend.config,
+      transport: PrivateTransport(configuration: session))
     let proposal = try await client.prepare()
     try await client.connect(proposal)
     let page = try await client.page(kind: "Todo")
-    XCTAssertEqual(page.items.count,1)
+    XCTAssertEqual(page.items.count, 1)
     await repository.lock()
     _ = try await repository.unlock(password: "disposable graph access password")
     let restored = try await client.manifest()
-    XCTAssertEqual(restored.subject_public_key,identity["subject_public_key"] as? String)
+    XCTAssertEqual(restored.subject_public_key, identity["subject_public_key"] as? String)
   }
   func testModernAndLegacyEnrollmentPersistenceAndSignedReadsThroughNativeCore() async throws {
     for version in [WorkReadProtocol.nativeV2, .monitorV3, .pathV4] {
@@ -399,58 +554,94 @@ final class ReadContractTests: XCTestCase {
     let identity = try object(await repository.readAccessIdentity())
     let pin = try ReadBackend(.monitorV3).config.authority
     let now = UInt64(Date().timeIntervalSince1970)
-    let challenge: [String:Any] = ["schema":"castalia.access-request-challenge.v1",
-      "challenge_id":String(repeating:"aa",count:16),"nonce":String(repeating:"A",count:43),
-      "issuer":pin.issuer,"receiver":pin.receiver,"subject_public_key":identity["subject_public_key"]!,
-      "installation_id":identity["installation_id"]!,"operation":"access.request","issued_at":now,"expires_at":now+120,
-      "details":["request_id":String(repeating:"bb",count:16),"intent":NSNull()]]
-    let preview = try await repository.prepareAccessRequest(json(challenge),pin:pin,now:now)
+    let challenge: [String: Any] = [
+      "schema": "castalia.access-request-challenge.v1",
+      "challenge_id": String(repeating: "aa", count: 16),
+      "nonce": String(repeating: "A", count: 43),
+      "issuer": pin.issuer, "receiver": pin.receiver,
+      "subject_public_key": identity["subject_public_key"]!,
+      "installation_id": identity["installation_id"]!, "operation": "access.request",
+      "issued_at": now, "expires_at": now + 120,
+      "details": ["request_id": String(repeating: "bb", count: 16), "intent": NSNull()],
+    ]
+    let preview = try await repository.prepareAccessRequest(json(challenge), pin: pin, now: now)
     let ticket = repository.lifecycleTicket()
-    let approved = try object(await repository.approveAccessRequest(preview,now:now,ticket:ticket))
+    let approved = try object(
+      await repository.approveAccessRequest(preview, now: now, ticket: ticket))
     XCTAssertNotNil(approved["proof"])
-    XCTAssertEqual(try json(approved["challenge"]!),try json(challenge))
+    XCTAssertEqual(try json(approved["challenge"]!), try json(challenge))
     let signature = try XCTUnwrap(approved["signature"] as? String)
-    let bytes = try XCTUnwrap(Data(base64Encoded:signature.replacingOccurrences(of:"-",with:"+").replacingOccurrences(of:"_",with:"/")+"=="))
-    let owner = try Curve25519.Signing.PublicKey(rawRepresentation:data(hex:XCTUnwrap(identity["subject_public_key"] as? String)))
-    XCTAssertTrue(owner.isValidSignature(bytes,for:Data("castalia/access-request-approval/v1\0".utf8)+(try json(challenge))))
-    do { _ = try await repository.approveAccessRequest(preview,now:now,ticket:ticket); XCTFail("one use") } catch { }
-    let pending = try await repository.prepareAccessRequest(json(challenge),pin:pin,now:now)
+    let bytes = try XCTUnwrap(
+      Data(
+        base64Encoded: signature.replacingOccurrences(of: "-", with: "+").replacingOccurrences(
+          of: "_", with: "/") + "=="))
+    let owner = try Curve25519.Signing.PublicKey(
+      rawRepresentation: data(hex: XCTUnwrap(identity["subject_public_key"] as? String)))
+    XCTAssertTrue(
+      owner.isValidSignature(
+        bytes, for: Data("castalia/access-request-approval/v1\0".utf8) + (try json(challenge))))
+    do {
+      _ = try await repository.approveAccessRequest(preview, now: now, ticket: ticket)
+      XCTFail("one use")
+    } catch {}
+    let pending = try await repository.prepareAccessRequest(json(challenge), pin: pin, now: now)
     await repository.lock()
-    _ = try await repository.unlock(password:"disposable read password")
-    do { _ = try await repository.approveAccessRequest(pending,now:now,ticket:ticket); XCTFail("lock must invalidate") } catch { }
+    _ = try await repository.unlock(password: "disposable read password")
+    do {
+      _ = try await repository.approveAccessRequest(pending, now: now, ticket: ticket)
+      XCTFail("lock must invalidate")
+    } catch {}
   }
 
   func testLostAccessRequestResponseUsesOriginalIDAndStatusOnly() async throws {
-    let backend=try ReadBackend(.monitorV3)
-    ReadProtocolStub.use(backend); defer { ReadProtocolStub.use(nil) }
-    let directory=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at:directory) }
-    let repository=try await makeMember(directory:directory.appendingPathComponent("wallet"),issuer:backend.issuer)
-    let session=URLSessionConfiguration.ephemeral; session.protocolClasses=[ReadProtocolStub.self]
-    let client=try DevgraphReadClient(repository:repository,configuration:backend.config,transport:PrivateTransport(configuration:session))
-    let store=try WorkAccessRequestStore(directory:directory.appendingPathComponent("requests"))
-    let catalog = try WorkAccessCatalog.decode(Data(contentsOf:XCTUnwrap(Bundle.module.url(forResource:"devgraph-access-catalog",withExtension:"json"))),receiver:"https://example.test",issuer:"fixture")
-    let preference = try WorkAccessPreference(catalog:catalog,presetID:"contributor",paths:[XCTUnwrap(catalog.scopes.last).resource_path])
-    backend.rejectAccessPreparation=true
-    do { _ = try await client.prepareAccessRequest(store:store,preference:preference);XCTFail("Rejected preparation") } catch { }
-    let stranded = try await client.hasAccessRequest(store:store)
+    let backend = try ReadBackend(.monitorV3)
+    ReadProtocolStub.use(backend)
+    defer { ReadProtocolStub.use(nil) }
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let repository = try await makeMember(
+      directory: directory.appendingPathComponent("wallet"), issuer: backend.issuer)
+    let session = URLSessionConfiguration.ephemeral
+    session.protocolClasses = [ReadProtocolStub.self]
+    let client = try DevgraphReadClient(
+      repository: repository, configuration: backend.config,
+      transport: PrivateTransport(configuration: session))
+    let store = try WorkAccessRequestStore(directory: directory.appendingPathComponent("requests"))
+    let catalog = try WorkAccessCatalog.decode(
+      Data(
+        contentsOf: XCTUnwrap(
+          Bundle.module.url(forResource: "devgraph-access-catalog", withExtension: "json"))),
+      receiver: "https://example.test", issuer: "fixture")
+    let preference = try WorkAccessPreference(
+      catalog: catalog, presetID: "contributor",
+      paths: [XCTUnwrap(catalog.scopes.last).resource_path])
+    backend.rejectAccessPreparation = true
+    do {
+      _ = try await client.prepareAccessRequest(store: store, preference: preference)
+      XCTFail("Rejected preparation")
+    } catch {}
+    let stranded = try await client.hasAccessRequest(store: store)
     XCTAssertFalse(stranded)
-    backend.rejectAccessPreparation=false
-    let first=try await client.prepareAccessRequest(store:store,preference:preference)
-    XCTAssertEqual(first.preference,preference)
-    let details = try XCTUnwrap(backend.challenge["details"] as? [String:Any])
-    XCTAssertEqual(details["schema"] as? String,"devgraph.access-request-action.v2")
+    backend.rejectAccessPreparation = false
+    let first = try await client.prepareAccessRequest(store: store, preference: preference)
+    XCTAssertEqual(first.preference, preference)
+    let details = try XCTUnwrap(backend.challenge["details"] as? [String: Any])
+    XCTAssertEqual(details["schema"] as? String, "devgraph.access-request-action.v2")
     XCTAssertFalse(first.checkingStatus)
-    backend.failSubmittedResponse=true
-    do { _ = try await client.submitAccessRequest(first); XCTFail("Lost response") } catch { }
-    let recovered=try await client.prepareAccessRequest(store:WorkAccessRequestStore(directory:directory.appendingPathComponent("requests")))
+    backend.failSubmittedResponse = true
+    do {
+      _ = try await client.submitAccessRequest(first)
+      XCTFail("Lost response")
+    } catch {}
+    let recovered = try await client.prepareAccessRequest(
+      store: WorkAccessRequestStore(directory: directory.appendingPathComponent("requests")))
     XCTAssertTrue(recovered.checkingStatus)
-    XCTAssertEqual(recovered.preference,preference)
-    XCTAssertEqual(recovered.requestID,first.requestID)
-    let result=try await client.submitAccessRequest(recovered)
-    XCTAssertEqual(result.status,"pending")
-    XCTAssertEqual(backend.submitCount,1)
-    XCTAssertEqual(backend.accessActions,["submit","status"])
+    XCTAssertEqual(recovered.preference, preference)
+    XCTAssertEqual(recovered.requestID, first.requestID)
+    let result = try await client.submitAccessRequest(recovered)
+    XCTAssertEqual(result.status, "pending")
+    XCTAssertEqual(backend.submitCount, 1)
+    XCTAssertEqual(backend.accessActions, ["submit", "status"])
   }
 
   private func makeMember(directory: URL, issuer: Curve25519.Signing.PrivateKey) async throws

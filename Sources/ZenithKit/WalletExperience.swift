@@ -11,7 +11,8 @@ public enum WalletDestination: String, CaseIterable, Identifiable, Hashable, Sen
     case .identities: return .recoveryAndCastaway
     case .recovery: return .recovery
     case .membership: return .castaway
-    case .access, .security, .about: return nil
+    case .access: return .encryptedGrants
+    case .security, .about: return nil
     }
   }
   public static var walletCases: [Self] { allCases.filter { $0.backupCoverage != nil } }
@@ -21,7 +22,7 @@ public enum WalletDestination: String, CaseIterable, Identifiable, Hashable, Sen
     case .identities: return "Identities & accounts"
     case .membership: return "Membership"
     case .recovery: return "Recovery"
-    case .access: return "Credentials & access"
+    case .access: return "Saved grants"
     case .security: return "Unlock & security"
     case .about: return "How Wallet works"
     }
@@ -40,7 +41,7 @@ public enum WalletDestination: String, CaseIterable, Identifiable, Hashable, Sen
 
 /// A storage location alone is not a backup promise. These are implemented
 /// export/restore paths; full installation database backup is not yet exposed.
-public enum WalletBackupCoverage: String, Sendable { case recovery, castaway, recoveryAndCastaway }
+public enum WalletBackupCoverage: String, Sendable { case recovery, castaway, recoveryAndCastaway, encryptedGrants }
 
 /// Mirrors Rust's scalar minimum and UTF-8 ceiling without changing a password.
 public enum WalletPasswordRules {
