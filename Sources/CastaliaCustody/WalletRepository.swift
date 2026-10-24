@@ -1,56 +1,7 @@
 import CastaliaWallet
 import Foundation
+import ZenithKit
 
-public struct WalletState: Decodable, Sendable {
-  public let configured: Bool
-  public let unlocked: Bool
-  public let revision: UInt64
-  public let publicKey: String?
-  public let backupVerified: Bool
-  public let membershipActive: Bool
-  public let backupEligible: Bool?
-  public let graphAccessProtocol: String?
-  public let operatorAccessProtocol: String?
-  public let resourceOwnerProtocol: String?
-  public var canRequestWorkAccess: Bool {
-    unlocked && (backupEligible ?? backupVerified) && graphAccessProtocol == "castalia.graph-access.v2"
-  }
-  enum CodingKeys: String, CodingKey {
-    case membershipActive = "membership_active"
-    case backupEligible = "backup_eligible"
-    case graphAccessProtocol = "graph_access_protocol"
-    case operatorAccessProtocol = "operator_access_protocol"
-    case resourceOwnerProtocol = "resource_owner_protocol"
-    case configured, unlocked, revision
-    case publicKey = "public_key"
-    case backupVerified = "backup_verified"
-  }
-}
-public struct RestorePreview: Decodable, Sendable {
-  public let token: String
-  public let expectedRevision: UInt64
-  public let publicKey: String
-  public let backupVerified: Bool
-  public let profile: PortableProfile?
-  public let chainAccounts: PublicAccounts?
-  public let walletIdentities: WalletIdentitySection?
-  public let importedWalletIdentities: Int?
-  public let memberships: PortableSections?
-  public let replacesProfile: Bool?
-  public let replacedProofs: [String]?
-  enum CodingKeys: String, CodingKey {
-    case profile, memberships
-    case chainAccounts = "chain_accounts"
-    case walletIdentities = "wallet_identities"
-    case importedWalletIdentities = "imported_wallet_identities"
-    case replacesProfile = "replaces_profile"
-    case replacedProofs = "replaced_proofs"
-    case token
-    case expectedRevision = "expected_revision"
-    case publicKey = "public_key"
-    case backupVerified = "backup_verified"
-  }
-}
 private final class NativeCore {
   let handle: UInt64
   init() throws {
@@ -90,7 +41,7 @@ private final class NativeCore {
 
 /// Serializes core calls and durable commits. No actor suspension occurs between
 /// candidate validation, storage CAS and core acknowledgement.
-public actor WalletRepository {
+public actor WalletRepository: WalletSession {
   private let core: NativeCore
   private let store: SnapshotStore
   private var previewTickets: [String: UInt64] = [:]

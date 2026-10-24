@@ -25,9 +25,9 @@ public struct SignerVerifiedReview: Equatable, Sendable {
 /// Implemented only in signer custody. Native consent tokens stay behind this
 /// boundary and are looked up using the exact signed request digest.
 public protocol SignerRootEngine: Actor {
-  func descriptor() throws -> SignerWalletDescriptor
-  func prepare(_ request: SignedSignerRequest, now: UInt64) throws -> SignerVerifiedReview
-  func approve(_ request: SignedSignerRequest, now: UInt64) throws -> Data
+  func descriptor() async throws -> SignerWalletDescriptor
+  func prepare(_ request: SignedSignerRequest, now: UInt64) async throws -> SignerVerifiedReview
+  func approve(_ request: SignedSignerRequest, now: UInt64) async throws -> Data
   func cancelPrepared() async
   func lock() async
 }
@@ -81,15 +81,25 @@ public actor SignerHostCoordinator {
       if let existing {
         guard existing.requestDigest == digest else { throw SignerFailure.changedRequest }; entry = existing
       } else {
-        let review = try await engine.prepare(request, now: clock())
-        guard generation == epoch, review.requestDigest == digest else { throw SignerFailure.changedRequest }
-        let policy = try await authorize(request)
-        entry = try await journal.register(request, policy: policy, verifiedSummary: review.summary, now: clock())
+        do {
+          let review = try await engine.prepare(request, now: clock())
+          guard generation == epoch, review.requestDigest == digest else { throw SignerFailure.changedRequest }
+          let policy = try await authorize(request)
+          entry = try await journal.register(request, policy: policy, verifiedSummary: review.summary, now: clock())
+        } catch {
+          await engine.cancelPrepared()
+          try? await journal.invalidatePending()
+          throw error
+        }
       }
       (result, payload) = try await disclosure(entry)
     case .requestServiceApproval, .recoverOriginalResult, .cancel:
       guard let originalID = request.body.originalRequestID else { throw SignerFailure.invalidMessage }
-      if request.body.operation == .cancel { try await journal.cancel(requestID: originalID, clientKey: request.body.clientKey) }
+      if request.body.operation == .cancel {
+        try await journal.cancel(requestID: originalID, clientKey: request.body.clientKey)
+        await engine.cancelPrepared()
+        try await journal.invalidatePending()
+      }
       let entry = try await journal.entry(requestID: originalID, clientKey: request.body.clientKey)
       guard entry.request.body.expectedWallet == request.body.expectedWallet else { throw SignerFailure.wrongWallet }
       let current = try await journal.pairing(clientKey: request.body.clientKey).policy

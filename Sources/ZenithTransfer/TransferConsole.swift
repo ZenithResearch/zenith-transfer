@@ -2,6 +2,7 @@
 import AppKit
 import SwiftUI
 import ZenithKit
+import CastaliaCustody
 
 @MainActor final class TransferModel: ObservableObject {
   @Published var wallet: WalletState? {
@@ -39,7 +40,7 @@ import ZenithKit
   private let identityRegistry: IdentityAccountRegistry?
   let fileCatalog = TransferFileCatalog()
   let presetLibrary = TransferPresetLibrary()
-  let repository: WalletRepository?
+  let repository: (any WalletSession)?
   private let registry: ResourceRegistry?
   private let defaults:UserDefaults
   private let clock:()->(Date,TimeInterval)
@@ -50,7 +51,7 @@ import ZenithKit
     self.defaults=defaults;self.clock=clock
     unlockDuration=TransferUnlockDuration.load(defaults)
     if let key=defaults.string(forKey:Self.identityHintKey),key.range(of:"^[a-f0-9]{64}$",options:.regularExpression) != nil { rememberedPublicKey=key }
-    var loadedRepository: WalletRepository?
+    var loadedRepository: (any WalletSession)?
     var loadedRegistry: ResourceRegistry?
     var loadedIdentities: IdentityAccountRegistry?
     do {
@@ -120,7 +121,7 @@ import ZenithKit
     } catch { self.error = "The resource could not be removed. Its server grants are unchanged." }
   }
   func perform<T>(onFailure: ((String) -> Void)? = nil,
-    _ action: @escaping (WalletRepository) async throws -> T,
+    _ action: @escaping (any WalletSession) async throws -> T,
     success: @escaping (T) -> Void = { _ in }) {
     expire()
     guard !busy, !locking, let repository else { return }

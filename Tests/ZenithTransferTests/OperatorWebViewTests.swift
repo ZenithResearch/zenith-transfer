@@ -1,3 +1,4 @@
+@testable import CastaliaCustody
 #if os(macOS)
 import Foundation
 import CryptoKit

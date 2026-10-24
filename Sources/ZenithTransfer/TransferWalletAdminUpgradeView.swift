@@ -59,7 +59,7 @@ import ZenithKit
     do { try await inspectRetained(plan) }
     catch { self.error="Could not verify the retained upgrade. No activation or registration was retried." }
   }
-  func prepare(repository: WalletRepository?) async {
+  func prepare(repository: (any WalletSession)?) async {
     guard !busy,!preparationBlocked else { return };busy=true;defer { busy=false }
     do {
       guard let repository,let store else { throw OwnerSetupError.walletLocked }
@@ -81,7 +81,7 @@ import ZenithKit
       status="Upgrade prepared. Review the graph, owner, local connection and authority changes below."
     } catch { self.error=(error as? OwnerSetupError)?.errorDescription ?? "Preparation did not complete. Inspect the retained upgrade before continuing." }
   }
-  func reviewOwner(repository: WalletRepository?, refresh: Bool = false) async {
+  func reviewOwner(repository: (any WalletSession)?, refresh: Bool = false) async {
     guard !busy,!proofRetained,!activationAttempted else { return };busy=true;defer { busy=false }
     do {
       guard let repository,let plan,let review else { throw OwnerSetupError.unavailable }
@@ -92,7 +92,7 @@ import ZenithKit
         now:UInt64(Date().timeIntervalSince1970))
     } catch { self.error=(error as? OwnerSetupError)?.errorDescription ?? "The owner review could not be prepared. If its timer expired, explicitly refresh the owner review; no setup deadline is extended." }
   }
-  func confirmOwnerAndUpgrade(repository: WalletRepository?) async {
+  func confirmOwnerAndUpgrade(repository: (any WalletSession)?) async {
     guard !busy,let consent else { return };busy=true;self.consent=nil;defer { busy=false }
     do {
       guard let repository,let plan,let review,consent.challenge.adminGrant.grantID==review.digest else { throw OwnerSetupError.changed }

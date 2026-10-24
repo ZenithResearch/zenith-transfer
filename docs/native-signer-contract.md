@@ -2,7 +2,8 @@
 
 This is a source-level implementation of the shared boundary, not a completed
 custody migration. The released Transfer and Zenith applications still use
-their existing in-process Wallet repository. No new service grant, root copy,
+their existing in-process Wallet repository. Source now separates the custody
+module from the shared app kit; preserved legacy app adapters still link custody. No new service grant, root copy,
 launch agent, Keychain record or device installation is created by these files.
 
 ## Modules
@@ -33,6 +34,17 @@ authentication mechanism. URLs carry ciphertext, not passwords, custody or bare
 proofs, accept only the named native callbacks, and refuse payloads above 16 KiB.
 A larger-message transport is not silently substituted.
 
+`CastaliaCustody` now owns the unchanged native C ABI engine, encrypted snapshot
+store and lifecycle gate. `ZenithKit` has no core dependency. `WalletSession` is a
+Swift abstraction for existing local views, not an IPC interface. Its maintenance
+methods must only be used in signer-owned UI after cutover. Existing app adapters
+remain explicit until the real signer clients and packaging are qualified.
+
+`NativeSignerEngine` prepares and approves native operator and graph-access
+request proofs, retaining one-use native tokens privately. It emits complete
+verified disclosures and the unchanged Castalia proof bytes. Unimplemented proof
+kinds fail closed; there is no raw-sign or older-protocol fallback.
+
 ## Identity and compatibility
 
 The authority binding uses issuer, canonical audience and the approved issuer key
@@ -57,11 +69,12 @@ UI; it is not an application-supplied JSON patch.
 | Handoff binds both peers, direction and signed inner bytes | SignerStorageAndHandoffTests |
 | Persistent encrypted journal rejects wrong key, stale CAS, symlink, revision tampering | SignerStorageAndHandoffTests, temporary synthetic database |
 | macOS XPC requirement refuses wildcard/injection/ad-hoc policy | SignerStorageAndHandoffTests; transport compile |
+| Native operator and graph-request proof bytes and one-use tokens | NativeSignerEngineTests, disposable Wallets |
 | Actual authenticated process exchange and signer-owned approval UI | Not qualified yet |
 | Separate native signer applications and no custody engine in client executables | Not implemented yet |
 | Real Wallet cutover, private storage/Keychain entitlements and recovery parity | Not activated; requires separate packaged qualification |
 | Application-holder service credentials usable with root signer locked | Requires versioned receiver/issuer integration; not implied by this transport |
 
-Full native suites pass with these modules: Transfer 223 tests (seven optional
-skips), iOS shared package 210 tests (six optional skips), no failures. These
+Full native suites pass with these modules: Transfer 226 tests (seven optional
+skips), iOS shared package 213 tests (six optional skips), no failures. These
 results do not establish the unfinished platform or custody guarantees above.

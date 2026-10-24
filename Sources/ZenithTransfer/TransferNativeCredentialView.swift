@@ -197,7 +197,7 @@ struct TransferOperatorView: View {
   @State private var unlocking = false
   @State private var creatingPreset = false
   @Environment(\.dismiss) private var dismiss
-  init(resource: RegisteredResource, repository: WalletRepository, walletModel: TransferModel) {
+  init(resource: RegisteredResource, repository: any WalletSession, walletModel: TransferModel) {
     self.walletModel = walletModel; library = walletModel.presetLibrary
     let bridge = TransferOperatorBridge(resource: resource, repository: repository)
     _bridge = StateObject(wrappedValue: bridge); _editor = StateObject(wrappedValue: NativeCredentialModel(bridge: bridge))

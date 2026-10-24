@@ -9,6 +9,13 @@ if len(sys.argv) != 2:
     raise SystemExit('Usage: python3 scripts/check-wallet-experience-parity.py /path/to/other-native-app')
 other = Path(sys.argv[1])
 paths = [
+    'Sources/CastaliaCustody/LifecycleGate.swift',
+    'Sources/CastaliaCustody/NativeSignerEngine.swift',
+    'Sources/CastaliaCustody/WalletRepository.swift',
+    'Sources/CastaliaSignerProtocol/SignerServiceChallenge.swift',
+    'Sources/ZenithKit/WalletFailure.swift',
+    'Sources/ZenithKit/WalletSession.swift',
+    'Tests/ZenithKitTests/NativeSignerEngineTests.swift',
     'Sources/CastaliaSignerProtocol/SignerClientSession.swift',
     'Sources/CastaliaSignerProtocol/SignerConsentJournal.swift',
     'Sources/CastaliaSignerProtocol/SignerHandoffURL.swift',
@@ -28,7 +35,7 @@ paths = [
     'Sources/ZenithKit/IdentityAccount.swift',
     'Sources/ZenithKit/WalletIdentity.swift',
     'Sources/ZenithKit/PortableSummary.swift',
-    'Sources/ZenithKit/SnapshotStore.swift',
+    'Sources/CastaliaCustody/SnapshotStore.swift',
     'Sources/ZenithKit/WalletIdentitiesView.swift',
     'Sources/ZenithKit/EncryptedImportFile.swift',
     'Sources/ZenithKit/RecoveryFileCatalog.swift',

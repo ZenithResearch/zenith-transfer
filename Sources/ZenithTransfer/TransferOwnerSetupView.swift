@@ -16,7 +16,7 @@ import ZenithKit
   @Published var activationAttempted = false
   @Published var installationStatus: String?
   private let installer = OwnerInstallationCoordinator()
-  func prepareInstallation(repository: WalletRepository?) async {
+  func prepareInstallation(repository: (any WalletSession)?) async {
     guard !installationBusy else { return }; installationBusy = true; defer { installationBusy = false }
     do {
       guard let plan = saved, let repository else { throw OwnerSetupError.walletLocked }
@@ -26,7 +26,7 @@ import ZenithKit
       installation = try await installer.prepare(plan)
     } catch { self.error = "Production preparation did not complete. The retained run must be inspected before another attempt; no retry was started." }
   }
-  func activateInstallation(repository: WalletRepository?) async {
+  func activateInstallation(repository: (any WalletSession)?) async {
     guard !installationBusy else { return }; installationBusy = true; defer { installationBusy = false }
     do {
       guard let plan = saved, let installation, let repository else { throw OwnerSetupError.walletLocked }
@@ -84,7 +84,7 @@ import ZenithKit
         publishHierarchy: publishHierarchy)
     } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "Review the owner setup settings." }
   }
-  func save(repository: WalletRepository?) async {
+  func save(repository: (any WalletSession)?) async {
     do {
       guard let plan = review, let repository else { throw OwnerSetupError.walletLocked }
       try target.check(plan)

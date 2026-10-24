@@ -142,4 +142,7 @@ public struct WalletIdentitySnapshot: Sendable {
   public let section: WalletIdentitySection
   public let revision: UInt64
   public let chainAccounts: PublicAccounts?
+  package init(section: WalletIdentitySection, revision: UInt64, chainAccounts: PublicAccounts?) {
+    self.section = section; self.revision = revision; self.chainAccounts = chainAccounts
+  }
 }

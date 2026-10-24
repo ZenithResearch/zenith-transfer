@@ -25,7 +25,7 @@ extension TransferOperatorBridge {
 @MainActor final class TransferOperatorBridge: NSObject, ObservableObject, WKURLSchemeHandler,
   WKNavigationDelegate, WKScriptMessageHandlerWithReply {
   let resource: RegisteredResource
-  let repository: WalletRepository
+  let repository: any WalletSession
   weak var webView: WKWebView?
   @Published var consent: OperatorConsent?
   @Published var failure: String?
@@ -48,7 +48,7 @@ extension TransferOperatorBridge {
     return Bundle.module.resourceURL!.appendingPathComponent("Operator")
   }()
 
-  init(resource: RegisteredResource, repository: WalletRepository,
+  init(resource: RegisteredResource, repository: any WalletSession,
     transport suppliedTransport: PrivateTransport? = nil, journalDirectory: URL? = nil,
     rpcExchange: ((String, Data) async throws -> PrivateHTTPResponse)? = nil) {
     self.resource = resource; self.repository = repository
