@@ -47,3 +47,8 @@ Provider login/session adapters and Keychain-backed secret references, account
 verification, portable identity export, persistent host configuration activation,
 and broader Tailnet API management remain separate changes. Never infer DevGraph
 ownership from Matrix/Nostr/Tailscale authentication.
+
+Owner endpoint configuration is specified separately in
+[service endpoint control](service-endpoint-control-spec.md). It uses the same
+DevGraph control contract for programmatic clients and Transfer, and is not part
+of the build 30 account-record implementation or a new access-admin permission.

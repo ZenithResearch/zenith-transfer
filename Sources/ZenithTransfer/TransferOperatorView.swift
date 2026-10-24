@@ -57,7 +57,11 @@ extension TransferOperatorBridge {
       if let rpcExchange { self.rpcExchange = rpcExchange }
       else if let suppliedTransport { transport = suppliedTransport }
       else if let rpc = try? LocalAdminRPC.discover(configuration: resource.configuration) { localRPC = rpc }
-      else if resource.configuration.network == .local { localRPC = try LocalAdminRPC.discover(configuration: resource.configuration) }
+      else if resource.configuration.network == .local || LocalAdminRPC.hasRegisteredService(configuration: resource.configuration) {
+        // A local endpoint binding must fail closed if its protected RPC
+        // configuration changes; never silently switch it to operator HTTP.
+        localRPC = try LocalAdminRPC.discover(configuration: resource.configuration)
+      }
       else { transport = try PrivateTransport(workServer: resource.configuration) }
       let root = try FileManager.default.url(for: .applicationSupportDirectory,
         in: .userDomainMask, appropriateFor: nil, create: true)

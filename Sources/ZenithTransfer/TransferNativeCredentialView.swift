@@ -35,6 +35,8 @@ import ZenithKit
       catch {
         if let e = error as? NativeGrantError { self.error = e.errorDescription }
         else if let e = error as? WalletFailure { self.error = e.errorDescription }
+        else if let e = error as? LocalAdminRPCError { self.error = e.errorDescription }
+        else if let e = error as? NativeOperatorServerError { self.error = e.errorDescription }
         else { self.error = "Could not finish this step. Check the Wallet and saved server connection." }
       }
     }

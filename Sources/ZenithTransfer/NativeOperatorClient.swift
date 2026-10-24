@@ -2,6 +2,21 @@
 import Foundation
 import ZenithKit
 
+/// Only fixed protocol codes become user-facing diagnostics. Server response
+/// text may contain private details and must never be copied into the UI.
+struct NativeOperatorServerError: LocalizedError {
+  let status: Int
+  let code: String
+  var errorDescription: String? {
+    let known: Set<String> = ["invalid_operator_selection", "operator_access_denied",
+      "operator_request_changed", "operator_assignment_changed", "write_activation_unavailable",
+      "write_activation_upgrade_required", "native_admission_required", "mixed_activation_unavailable",
+      "activation_unavailable", "activation_upgrade_required", "operator_result_unknown"]
+    let diagnostic = known.contains(code) ? "; " + code : ""
+    return "The server could not prepare this step (HTTP \(status)\(diagnostic)). Your selection is preserved."
+  }
+}
+
 struct NativeOperatorInbox {
   let raw: [String: Any]
   let ceiling: [String: Any]
@@ -76,7 +91,7 @@ struct NativeOperatorInbox {
       let status = response["status"] as? Int, let text = response["body"] as? String else { throw NativeGrantError.invalid }
     guard (200..<300).contains(status) else {
       let raw = try? GrantJSON.object(Data(text.utf8)), code = raw?["error"] as? String ?? ""
-      throw NativeHTTPError(status: status, code: code)
+      throw NativeOperatorServerError(status: status, code: code)
     }
     return try GrantJSON.object(Data(text.utf8))
   }
@@ -145,7 +160,7 @@ struct NativeOperatorInbox {
     let result: [String: Any]
     do { result = try await post("/devgraph/access-operator/v1/actions", proof) }
     catch {
-      if recoveryAction == nil, let e = error as? NativeHTTPError,
+      if recoveryAction == nil, let e = error as? NativeOperatorServerError,
         [400,401,409].contains(e.status), Self.closedRejections.contains(e.code) {
         _ = try await bridge.invokeNative("clear"); original = nil; self.challenge = nil; state = .idle
         throw NativeGrantError.changed
@@ -160,7 +175,6 @@ struct NativeOperatorInbox {
     } catch { recoveryAction = nil; self.challenge = nil; state = .unknown; throw NativeGrantError.recovery }
   }
   private static let closedRejections: Set<String> = ["invalid_operator_selection", "operator_access_denied", "operator_request_changed", "operator_assignment_changed", "write_activation_unavailable", "write_activation_upgrade_required", "native_admission_required", "mixed_activation_unavailable", "activation_unavailable", "activation_upgrade_required"]
-  private struct NativeHTTPError: Error { let status: Int; let code: String }
 
   private func validate(_ response: [String: Any], pending: [String: Any]) throws -> [String: Any] {
     func envelope(_ value: [String: Any], _ action: [String: Any]) -> Bool {

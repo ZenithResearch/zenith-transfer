@@ -57,6 +57,26 @@ final class NativeOperatorClientTests: XCTestCase {
     try await exerciseInboxRecovery(localRPC: true)
     XCTAssertEqual(httpCalls, 0)
   }
+  @MainActor func testRejectedPreparationReportsSafeCodeWithoutSavingOrSigningAnAction() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (repo, resource, _) = try await fixture(root)
+    let bridge = TransferOperatorBridge(resource: resource, repository: repo,
+      journalDirectory: root.appendingPathComponent("actions"), rpcExchange: { operation, _ in
+        XCTAssertEqual(operation, "challenge")
+        return PrivateHTTPResponse(status: 400, data: try GrantJSON.data(["error": "invalid_operator_selection"]))
+      })
+    defer { bridge.cancel() }
+    let client = try NativeOperatorClient(bridge: bridge)
+    do { try await client.prepare(["action": "inbox"]); XCTFail("Rejected preparation must fail") }
+    catch let error as NativeOperatorServerError {
+      XCTAssertTrue(error.errorDescription?.contains("invalid_operator_selection") == true)
+    }
+    XCTAssertEqual(client.state, .idle)
+    XCTAssertNil(try bridge.retainedNativeAction()); XCTAssertNil(bridge.consent)
+    let untrusted = NativeOperatorServerError(status: 400, code: "private arbitrary server text")
+    XCTAssertFalse(untrusted.errorDescription!.contains("private arbitrary server text"))
+  }
   @MainActor private func exerciseInboxRecovery(localRPC: Bool) async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root); NativeOperatorResponse.handler = nil }
