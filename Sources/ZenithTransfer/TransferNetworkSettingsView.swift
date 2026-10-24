@@ -20,6 +20,7 @@ struct TransferNetworkSettingsView: View {
   @State private var problem: String?
   @State private var review: NetworkSetupReview?
   @State private var creatingKey = false
+  @State private var createdFile: URL?
   @State private var operation: Task<Void, Never>?
 
   var body: some View {
@@ -38,11 +39,13 @@ struct TransferNetworkSettingsView: View {
     .task { if automaticallyDiscover { await refresh() } }
     .onDisappear { operation?.cancel() }
     .sheet(item: $review) { item in reviewSheet(item) }
-    .sheet(isPresented: $creatingKey) {
+    .sheet(isPresented: $creatingKey, onDismiss: {
+      guard let url = createdFile else { return }; createdFile = nil
+      do { try reloadFiles(); offer(try ConnectionFileReview.read(url, as: .tailscale)) }
+      catch { problem = "The connection file could not be read. Choose it again." }
+    }) {
       TailscaleConnectionFileCreator(directory: folder) { url in
-        creatingKey = false
-        do { try reloadFiles(); offer(try ConnectionFileReview.read(url, as: .tailscale)) }
-        catch { problem = "The connection file could not be read. Choose it again." }
+        createdFile = url; creatingKey = false
       }
     }
   }
