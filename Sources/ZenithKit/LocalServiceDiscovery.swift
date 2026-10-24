@@ -148,7 +148,8 @@ public enum LocalServiceProbe {
         return .init(reached: true, walletAdministration: true)
       }
       let transport: PrivateTransport
-      if let connection { transport=try PrivateTransport(workServer:connection) }
+      if connection?.network == .tailscale { transport=HostTailscaleConnection().transport() }
+      else if let connection { transport=try PrivateTransport(workServer:connection) }
       else { let config=URLSessionConfiguration.ephemeral;config.connectionProxyDictionary=[:];transport=PrivateTransport(configuration:config) }
       return await check(endpoint:endpoint,connection:connection,resourceID:resourceID,instanceID:instanceID) { origin,path in
         try await transport.publicServiceMetadata(at:origin,path:path)
