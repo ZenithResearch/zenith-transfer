@@ -90,11 +90,11 @@ public struct WalletIdentityContent: View {
 /// Displays only proofs carried by the current Castaway export. Provider setup,
 /// active-session selection and network configuration live in Settings.
 public struct WalletMembershipContent: View {
-  let repository: WalletRepository?
+  let repository: (any WalletSession)?
   let unlocked: Bool
   @State private var proofs: [PortableSections.Proof] = []
   @State private var unavailable = false
-  public init(repository: WalletRepository?, unlocked: Bool) { self.repository = repository; self.unlocked = unlocked }
+  public init(repository: (any WalletSession)?, unlocked: Bool) { self.repository = repository; self.unlocked = unlocked }
   public var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 24) {

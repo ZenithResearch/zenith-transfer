@@ -149,11 +149,11 @@ public struct WorkRecord: Decodable, Identifiable, Sendable {
 }
 
 public final class DevgraphReadClient: @unchecked Sendable {
-  let repository: WalletRepository
+  let repository: any WalletSession
   let configuration: WorkAccessConfiguration
   let transport: PrivateTransport
   public init(
-    repository: WalletRepository, configuration: WorkAccessConfiguration,
+    repository: any WalletSession, configuration: WorkAccessConfiguration,
     transport: PrivateTransport? = nil
   ) throws {
     try configuration.validate()

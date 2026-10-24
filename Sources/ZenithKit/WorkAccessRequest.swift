@@ -72,13 +72,13 @@ public final class WorkAccessRequestStore: @unchecked Sendable {
 
 }
 public struct NativeAccessRequestPreview: Decodable, Sendable {
-  let token: String
-  let summary: Summary
-  struct Summary: Decodable, Sendable {
-    let issuer: String
-    let receiver: String
-    let operation: String
-    let expires_at: UInt64
+  package let token: String
+  package let summary: Summary
+  package struct Summary: Decodable, Sendable {
+    package let issuer: String
+    package let receiver: String
+    package let operation: String
+    package let expires_at: UInt64
   }
 }
 public struct WorkAccessRequestConsent: Sendable {

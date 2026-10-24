@@ -45,7 +45,7 @@ public struct BiometricCredential: Codable, Sendable {
   public var isEnabled: Bool { store.isEnabled }
   public init(store: any BiometricCredentialStore) { self.store = store }
 
-  public func enable(password: String, repository: WalletRepository) async throws -> WalletState {
+  public func enable(password: String, repository: any WalletSession) async throws -> WalletState {
     let ticket = repository.lifecycleTicket()
     // The existing Rust core validates the password before anything is saved.
     let state = try await repository.unlock(password: password, expectedLifecycle: ticket)
@@ -63,7 +63,7 @@ public struct BiometricCredential: Codable, Sendable {
     }
   }
 
-  public func unlock(repository: WalletRepository) async throws -> WalletState {
+  public func unlock(repository: any WalletSession) async throws -> WalletState {
     let ticket = repository.lifecycleTicket()
     let credential = try await store.read()
     try Task.checkCancellation()

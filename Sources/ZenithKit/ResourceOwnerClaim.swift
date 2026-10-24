@@ -99,11 +99,11 @@ public struct ResourceOwnerChallenge: Codable, Equatable, Sendable {
 
 /// Exact native review plus a lifecycle ticket. No generic signing fallback.
 public struct ResourceOwnerConsent: Identifiable, Sendable {
-  let token: String
+  package let token: String
   public let challenge: ResourceOwnerChallenge
-  let lifecycle: UInt64
+  package let lifecycle: UInt64
   public var id: String { token }
-  static func decode(_ data: Data, challenge: ResourceOwnerChallenge, lifecycle: UInt64) throws -> Self {
+  package static func decode(_ data: Data, challenge: ResourceOwnerChallenge, lifecycle: UInt64) throws -> Self {
     let value = try ownerObject(data)
     try ownerKeys(value, ["token", "summary"])
     guard let token = value["token"] as? String, ownerHex(token, 32),
