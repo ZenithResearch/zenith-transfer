@@ -12,24 +12,32 @@ their servers.
 
 ## Build
 
-Apple Silicon Mac, macOS 13+, Xcode and Swift 5.9+. The native Wallet dependency
-must be built from the exact revision in `Dependencies.json` using an authorized
-Wallet checkout. That revision is currently not available from the public Wallet
-mirror. This repository publishes the Swift application and vendored editor, not
-the private dependency or prebuilt Wallet binaries. A clean public-only build is
-therefore not yet available; dependency source publication is a separate release.
+Apple Silicon Mac, macOS 13+, Xcode and Swift 5.9+, Python 3, and Rust/Cargo.
+The native Wallet dependency is public source, pinned to an exact revision in
+`Dependencies.json`. Start in a clean checkout of this repository and build it:
 
 ```sh
-scripts/build-core.sh /absolute/path/to/authorized/castalia-wallet
+git clone https://github.com/ZenithResearch/castalia-wallet.git ../castalia-wallet
+wallet_revision=$(python3 -c 'import json; print(json.load(open("Dependencies.json"))["wallet"]["revision"])')
+git -C ../castalia-wallet checkout --detach "$wallet_revision"
+rustup target add aarch64-apple-darwin
+scripts/build-core.sh ../castalia-wallet
 swift test
 scripts/build-transfer-app.sh
 open 'Artifacts/Zenith Transfer.app'
 ```
 
 The builder verifies the dependency revision and clean Rust inputs. It packages
-only the macOS arm64 slice. Native build manifests and binaries are local ignored
+only the macOS arm64 slice. Cargo downloads dependencies as needed while preserving
+the committed lockfile. For a previously populated Cargo cache, opt into offline
+mode with `ZENITH_CARGO_OFFLINE=1 scripts/build-core.sh ../castalia-wallet`.
+Native build manifests and binaries are local ignored
 outputs. `scripts/build-transfer-app.sh` creates an ad-hoc signed development app
 with the established Zenith artwork. Distribution signing/notarization is separate.
+
+The public dependency preserves the native ABI, encrypted recovery format, and
+graph/operator/owner consent used by the earlier private pin. Source provenance
+is recorded in the Wallet repository's `TRANSFER-NATIVE-SOURCE.json`.
 
 ## Identities & accounts
 

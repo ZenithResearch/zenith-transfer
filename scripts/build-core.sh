@@ -2,7 +2,13 @@
 set -euo pipefail
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 export MACOSX_DEPLOYMENT_TARGET=13.0
-if [ "$#" -ne 1 ]; then echo 'Usage: scripts/build-core.sh /path/to/authorized/castalia-wallet' >&2; exit 2; fi
+if [ "$#" -ne 1 ]; then echo 'Usage: scripts/build-core.sh /path/to/castalia-wallet' >&2; exit 2; fi
+resolution_flags=(--locked)
+case "${ZENITH_CARGO_OFFLINE:-0}" in
+  0) ;;
+  1) resolution_flags+=(--offline) ;;
+  *) echo 'ZENITH_CARGO_OFFLINE must be 0 or 1' >&2; exit 2 ;;
+esac
 wallet_source=$(cd "$1" && pwd)
 app_root=$(cd "$(dirname "$0")/.." && pwd)
 expected=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["wallet"]["revision"])' "$app_root/Dependencies.json")
@@ -15,8 +21,8 @@ git -C "$wallet_source" diff --exit-code HEAD -- Cargo.toml Cargo.lock crates/ca
 if [ -n "$(git -C "$wallet_source" ls-files --others --exclude-standard -- crates/castalia-wallet-core crates/castalia-wallet-native crates/castalia-wallet-presentation)" ]; then
   echo 'Wallet build inputs include untracked files' >&2; exit 2
 fi
-wallet_target_dir=$(cargo metadata --manifest-path "$wallet_source/Cargo.toml" --no-deps --format-version 1 --locked --offline | python3 -c 'import json,sys;print(json.load(sys.stdin)["target_directory"])')
-cargo build --manifest-path "$wallet_source/Cargo.toml" --locked --offline --release --target aarch64-apple-darwin -p castalia-wallet-native
+wallet_target_dir=$(cargo metadata --manifest-path "$wallet_source/Cargo.toml" --no-deps --format-version 1 "${resolution_flags[@]}" | python3 -c 'import json,sys;print(json.load(sys.stdin)["target_directory"])')
+cargo build --manifest-path "$wallet_source/Cargo.toml" "${resolution_flags[@]}" --release --target aarch64-apple-darwin -p castalia-wallet-native
 mkdir -p "$app_root/Artifacts"
 output="$app_root/Artifacts/CastaliaWallet.xcframework"
 if [ -d "$output" ]; then mv "$output" "$app_root/Artifacts/CastaliaWallet.previous.$(date +%s).xcframework"; fi
