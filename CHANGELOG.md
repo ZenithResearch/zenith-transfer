@@ -1,3 +1,10 @@
+## Native identity consistency — build 37
+
+- Keep legacy Matrix/Nostr application records read-only and preserve their files.
+- Route all new identity edits and reviewed legacy copying through Wallet identities.
+- Keep Tailscale configuration editable in application settings.
+- Reject stale legacy create/edit/delete operations in application save adapters.
+
 ## Portable Wallet identities — unreleased
 
 - Pin shared public core0.3.0 at `054b372d686e2f8dba0ad8bbd166adbde9ebab38`.

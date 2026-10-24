@@ -103,7 +103,7 @@ import ZenithKit
     guard walletUnlocked, let owner = wallet?.publicKey,
       (value?.walletPublicKey ?? expected?.walletPublicKey) == owner, let identityRegistry
     else { throw WalletFailure.locked }
-    try identityRegistry.save(value, replacing: expected)
+    try identityRegistry.saveApplicationRecord(value, replacing: expected)
     try reloadIdentityAccounts()
   }
   func register(_ value: RegisteredResource, replacing expected: RegisteredResource?) {

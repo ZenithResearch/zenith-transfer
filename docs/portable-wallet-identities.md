@@ -63,3 +63,14 @@ silently repeated.
 The broader proposed connected-accounts standard, general delegation, rewards,
 provider authentication and signer-process isolation are not implemented by this
 change.
+
+## Legacy application records
+
+Application settings expose original Matrix/Nostr records as read-only history.
+There is no application Add/Edit/Remove path for those providers. Open Wallet
+identities to review copying existing records; the original files remain intact,
+and only the encrypted core is edited afterward. New Matrix/Nostr/GitHub/X records
+are created only through Wallet identities. Tailscale remains editable application
+configuration and is excluded from portable identity migration and backups.
+Application save adapters reject legacy creation, replacement and deletion, even
+if an old form is retained. Tailscale edits retain compare-and-swap validation.

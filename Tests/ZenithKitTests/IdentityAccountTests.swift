@@ -52,6 +52,40 @@ final class IdentityAccountTests: XCTestCase {
     try first.save(nil, replacing: edited)
     XCTAssertEqual(try second.load(wallet: owner), [])
   }
+  func testApplicationEditingPreservesLegacyFilesAndOnlyChangesTailscale() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let registry = try IdentityAccountRegistry(directory: root)
+    let matrix = try record()
+    let nostr = try IdentityAccount(walletPublicKey: owner, provider: .nostr, label: "Nostr", identifier: owner, server: "")
+    for original in [matrix, nostr] {
+      // Seed a historical file through the compatibility storage, not app editing.
+      try registry.save(original, replacing: nil)
+      let path = root.appendingPathComponent(original.id.uuidString.lowercased() + ".json")
+      let bytes = try Data(contentsOf: path)
+      let changed = try IdentityAccount(id: original.id, walletPublicKey: owner, provider: original.provider,
+        label: "Changed", identifier: original.identifier, server: original.server)
+      XCTAssertThrowsError(try registry.saveApplicationRecord(changed, replacing: original))
+      XCTAssertThrowsError(try registry.saveApplicationRecord(nil, replacing: original))
+      let fresh = try IdentityAccount(walletPublicKey: owner, provider: original.provider,
+        label: original.label, identifier: original.identifier, server: original.server)
+      XCTAssertThrowsError(try registry.saveApplicationRecord(fresh, replacing: nil))
+      let replacement = try IdentityAccount(id: original.id, walletPublicKey: owner, provider: .tailscale,
+        label: "Network", identifier: "member", server: "example.ts.net")
+      XCTAssertThrowsError(try registry.saveApplicationRecord(replacement, replacing: original))
+      XCTAssertEqual(try Data(contentsOf: path), bytes)
+    }
+    XCTAssertEqual(try registry.load(wallet: owner).count, 2)
+    let tailnet = try IdentityAccount(walletPublicKey: owner, provider: .tailscale,
+      label: "Network", identifier: "member", server: "example.ts.net")
+    try registry.saveApplicationRecord(tailnet, replacing: nil)
+    let renamed = try IdentityAccount(id: tailnet.id, walletPublicKey: owner, provider: .tailscale,
+      label: "Renamed network", identifier: "member", server: "example.ts.net")
+    try registry.saveApplicationRecord(renamed, replacing: tailnet)
+    XCTAssertThrowsError(try registry.saveApplicationRecord(tailnet, replacing: tailnet), "CAS still rejects stale forms")
+    try registry.saveApplicationRecord(nil, replacing: renamed)
+    XCTAssertEqual(Set(try registry.load(wallet: owner).map(\.id)), Set([matrix.id, nostr.id]))
+  }
   func testRejectsLinkedRecordAndOverLimitCatalog() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }

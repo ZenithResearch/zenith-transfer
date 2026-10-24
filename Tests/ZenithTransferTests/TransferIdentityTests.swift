@@ -42,9 +42,9 @@ final class TransferIdentityTests: XCTestCase {
     _ = try await repo.create(password: "disposable account test password")
     await model.refresh()
     let owner = try XCTUnwrap(model.wallet?.publicKey)
-    let account = try IdentityAccount(walletPublicKey: owner, provider: .matrix, label: "Work chat", identifier: "@owner:matrix.example", server: "https://matrix.example")
+    let account = try IdentityAccount(walletPublicKey: owner, provider: .tailscale, label: "Network", identifier: "member", server: "example.ts.net")
     try model.saveIdentityAccount(account, replacing: nil)
-    let other = try IdentityAccount(walletPublicKey: String(repeating: "b", count: 64), provider: .matrix, label: "Other Wallet", identifier: "@other:matrix.example", server: "https://matrix.example")
+    let other = try IdentityAccount(walletPublicKey: String(repeating: "b", count: 64), provider: .tailscale, label: "Other Wallet", identifier: "other", server: "example.ts.net")
     XCTAssertThrowsError(try model.saveIdentityAccount(other, replacing: nil))
     model.lock()
     XCTAssertThrowsError(try model.saveIdentityAccount(nil, replacing: account))
@@ -57,5 +57,38 @@ final class TransferIdentityTests: XCTestCase {
     let state = try await repo.state()
     XCTAssertFalse(state.unlocked)
   }
+  @MainActor func testLegacyApplicationRecordsRemainReadOnlyThroughModel() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let suite = "LegacyIdentityTests." + UUID().uuidString
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
+    let model = TransferModel(directory: root, defaults: defaults)
+    _ = try await XCTUnwrap(model.repository).create(password: "synthetic legacy test password")
+    await model.refresh()
+    let owner = try XCTUnwrap(model.wallet?.publicKey)
+    let legacy = try IdentityAccount(walletPublicKey: owner, provider: .matrix, label: "Legacy chat",
+      identifier: "@member:example.test", server: "https://matrix.example.test")
+    XCTAssertThrowsError(try model.saveIdentityAccount(legacy, replacing: nil))
+    let registry = try IdentityAccountRegistry(directory: root.appendingPathComponent("Identities"))
+    try registry.save(legacy, replacing: nil)
+    try model.reloadIdentityAccounts()
+    XCTAssertEqual(model.identityAccounts, [legacy])
+    XCTAssertThrowsError(try model.saveIdentityAccount(nil, replacing: legacy))
+    XCTAssertThrowsError(try model.saveIdentityAccount(legacy, replacing: legacy))
+    XCTAssertEqual(try registry.load(wallet: owner), [legacy])
+    if let output = ProcessInfo.processInfo.environment["TRANSFER_LEGACY_SCREENSHOT_PATH"] {
+      let view = NSHostingView(rootView: NavigationStack { TransferIdentityAccountsView(model: model, showWallet: {}) }
+        .frame(width: 860, height: 1000).background(Color.white).environment(\.colorScheme, .light))
+      let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 1000),
+        styleMask: .borderless, backing: .buffered, defer: false)
+      window.contentView = view; view.layoutSubtreeIfNeeded()
+      RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+      let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+      view.cacheDisplay(in: view.bounds, to: bitmap)
+      try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output))
+      window.contentView = nil
+    }
+  }
+
 }
 #endif

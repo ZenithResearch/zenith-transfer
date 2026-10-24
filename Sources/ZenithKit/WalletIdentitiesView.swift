@@ -227,3 +227,27 @@ private extension View {
     #endif
   }
 }
+
+/// Preserved application records are evidence for an explicit migration, never a
+/// second editable identity store. Rendering this view does not write any file.
+public struct LegacyWalletIdentityRecordsView: View {
+  let records: [IdentityAccount]
+  public init(records: [IdentityAccount]) { self.records = records }
+  public var body: some View {
+    let legacy = records.filter { $0.provider != .tailscale }
+    if !legacy.isEmpty {
+      GroupBox("Legacy Matrix/Nostr records · Read only") {
+        VStack(alignment: .leading, spacing: 12) {
+          Text("Original application files are preserved. Open Wallet identities and choose Review existing records for Wallet to copy them after review. Future edits happen only in Wallet; these originals do not change.").font(.footnote).foregroundStyle(.secondary)
+          ForEach(legacy) { record in
+            VStack(alignment: .leading, spacing: 6) {
+              Text(record.provider.title + " · " + record.label).font(.headline)
+              Text(record.identifier).font(.callout.monospaced()).textSelection(.enabled)
+              if !record.server.isEmpty { Text(record.server).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+            }
+          }
+        }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+  }
+}

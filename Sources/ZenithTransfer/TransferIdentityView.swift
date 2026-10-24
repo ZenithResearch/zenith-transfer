@@ -91,100 +91,55 @@ private struct TransferNetworkSettingsView: View {
   }
 }
 
-private struct TransferIdentityAccountsView: View {
+struct TransferIdentityAccountsView: View {
   @ObservedObject var model: TransferModel
   let showWallet: () -> Void
-  @State private var provider = IdentityProvider.tailscale
-  @State private var selected: UUID?
   @State private var editing: IdentityAccount?
   @State private var adding = false
   @State private var removing: IdentityAccount?
   @State private var error: String?
-  @State private var host: PublicationSnapshot?
-  @State private var checking = false
-  @State private var hostError: String?
-  private var accounts: [IdentityAccount] { model.identityAccounts.filter { $0.provider == provider } }
-  private var current: IdentityAccount? { accounts.first { $0.id == selected } ?? accounts.first }
+  private var accounts: [IdentityAccount] { model.identityAccounts.filter { $0.provider == .tailscale } }
   var body: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      HStack(alignment: .top) {
-        VStack(alignment: .leading, spacing: 6) {
-          Text("Application accounts").font(.largeTitle.bold())
-          Text("Local public account records. These are application settings and are not included in Wallet backups.").foregroundStyle(.secondary)
+    ScrollView {
+      VStack(alignment: .leading, spacing: 24) {
+        Text("Application accounts").font(.largeTitle.bold())
+        Text("Tailscale records are application settings and are not included in Wallet backups. Matrix, Nostr, GitHub and X identities are managed in Wallet.").foregroundStyle(.secondary)
+        NavigationLink("Open Wallet identities") {
+          PortableWalletIdentitiesView(repository: model.repository, unlocked: model.walletUnlocked,
+            legacy: model.identityAccounts, changed: { Task { await model.refresh() } })
         }
-        Spacer()
-        Button("Add account") { adding = true }.disabled(!model.walletUnlocked)
-      }
-      if model.displayPublicKey == nil {
-        Label("Set up your Castalia Wallet first", systemImage: "wallet.pass").font(.headline)
-        Button("Open Wallet setup", action: showWallet).buttonStyle(TransferPrimaryButtonStyle())
-      } else {
         if !model.walletUnlocked {
-          HStack { Label("Wallet locked · Saved account details remain readable", systemImage: "lock"); Spacer(); Button("Unlock Wallet", action: showWallet) }.font(.callout)
+          HStack {
+            Label("Unlock Wallet to manage identities or change Tailscale records", systemImage: "lock")
+            Spacer(); Button("Unlock Wallet", action: showWallet)
+          }.font(.callout)
         }
-        HStack(alignment: .top, spacing: 24) {
-          VStack(spacing: 6) {
-            ForEach(IdentityProvider.allCases) { item in
-              Button { provider = item; selected = nil } label: {
-                Label(item.title, systemImage: item.symbol).frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                  .background(provider == item ? Color.accentColor.opacity(0.12) : Color.clear).cornerRadius(9)
-              }.buttonStyle(.plain).accessibilityAddTraits(provider == item ? .isSelected : [])
-            }
-          }.frame(width: 160)
-          Divider()
-          ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-              HStack { Text(provider.title).font(.title2.bold()); Spacer(); Text("Public account records").font(.caption).foregroundStyle(.secondary) }
-              if accounts.count > 1 {
-                Picker("Account", selection: Binding(get: { current?.id }, set: { selected = $0 })) {
-                  ForEach(accounts) { Text($0.label).tag(Optional($0.id)) }
-                }
-              }
-              if let account = current {
-                GroupBox("Public identity") {
-                  VStack(alignment: .leading, spacing: 12) {
-                    LabeledContent("Name", value: account.label)
-                    LabeledContent(provider == .nostr ? "Public key (hex)" : "Account", value: account.identifier)
-                    if !account.server.isEmpty { LabeledContent(serverLabel, value: account.server) }
-                  }.textSelection(.enabled).padding(8).frame(maxWidth: .infinity, alignment: .leading)
-                }
+        GroupBox("Tailscale · Application settings") {
+          VStack(alignment: .leading, spacing: 16) {
+            if accounts.isEmpty { Text("No Tailscale account saved").foregroundStyle(.secondary) }
+            ForEach(accounts) { account in
+              VStack(alignment: .leading, spacing: 8) {
+                Text(account.label).font(.headline)
+                Text(account.identifier).textSelection(.enabled)
+                Text(account.server).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 HStack {
-                  Button("Edit account") { editing = account }.disabled(!model.walletUnlocked)
-                  Button("Remove account…", role: .destructive) { removing = account }.disabled(!model.walletUnlocked)
-                }
-              } else {
-                GroupBox {
-                  VStack(alignment: .leading, spacing: 10) {
-                    Text("No \(provider.title) account saved").font(.headline)
-                    Text("Add a public identifier and server to organize this Wallet’s accounts. Authentication is a separate step.").foregroundStyle(.secondary)
-                    Button("Add \(provider.title) account") { adding = true }.disabled(!model.walletUnlocked)
-                  }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
-                }
+                  Button("Edit account") { editing = account }
+                  Button("Remove account…", role: .destructive) { removing = account }
+                }.disabled(!model.walletUnlocked)
               }
-              GroupBox("Protected authentication") {
-                VStack(alignment: .leading, spacing: 10) {
-                  Label("Not connected", systemImage: "lock").font(.headline)
-                  Text(authenticationExplanation).foregroundStyle(.secondary)
-                  Text("Passwords, private keys and access tokens do not belong in these account details.").font(.caption).foregroundStyle(.secondary)
-                }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
-              }
-              if provider != .tailscale {
-                GroupBox("Where this identity is used") {
-                  Text(provider == .matrix ? "Matrix accounts can support chat and request notifications. Signing in and message delivery are not enabled by saving this record." : "Nostr identities can support membership requests. A provider login or signing adapter is not yet connected to this account record.")
-                    .foregroundStyle(.secondary).padding(8).frame(maxWidth: .infinity, alignment: .leading)
-                }
-              }
-              Divider()
-              Text("DevGraph permissions are managed separately in Resources & requests. An account record does not grant access, establish graph ownership or enable onward delegation.").font(.callout).foregroundStyle(.secondary)
-            }.frame(maxWidth: .infinity, alignment: .leading)
-          }
+            }
+            Button("Add Tailscale account") { adding = true }.disabled(!model.walletUnlocked)
+            Text("Public details only. Saving does not connect this Mac to Tailscale or store an API secret. Node keys and enrollment stay with Tailscale.").font(.footnote).foregroundStyle(.secondary)
+          }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
         }
-      }
-    }.padding(24)
+        LegacyWalletIdentityRecordsView(records: model.identityAccounts)
+        Text("DevGraph permissions are managed separately in Resources & requests. An account record does not grant access or establish graph ownership.").font(.callout).foregroundStyle(.secondary)
+      }.frame(maxWidth: 740, alignment: .leading).frame(maxWidth: .infinity).padding(24)
+    }
       .task { do { try model.reloadIdentityAccounts() } catch { self.error = "Saved accounts could not be loaded safely." } }
-      .sheet(isPresented: $adding) { TransferIdentityEditor(model: model, provider: provider, original: nil) }
-      .sheet(item: $editing) { account in TransferIdentityEditor(model: model, provider: account.provider, original: account) }
-      .alert("Remove this account record?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
+      .sheet(isPresented: $adding) { TransferIdentityEditor(model: model, original: nil) }
+      .sheet(item: $editing) { account in TransferIdentityEditor(model: model, original: account) }
+      .alert("Remove this Tailscale record?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
         Button("Cancel", role: .cancel) { removing = nil }
         Button("Remove account", role: .destructive) {
           do { try model.saveIdentityAccount(nil, replacing: removing); removing = nil }
@@ -195,20 +150,11 @@ private struct TransferIdentityAccountsView: View {
         Button("OK") { error = nil }
       } message: { Text(error ?? "") }
   }
-  private var serverLabel: String { switch provider { case .matrix: return "Homeserver"; case .nostr: return "Relay"; case .tailscale: return "Tailnet" } }
-  private var authenticationExplanation: String {
-    switch provider {
-    case .matrix: return "A Matrix session will use protected storage through a provider adapter. Saving an account does not authenticate to the homeserver."
-    case .nostr: return "Nostr needs a separately protected key or connected signer. This record contains only its public key; it does not sign events."
-    case .tailscale: return "Account/API authorization is separate from this Mac’s Tailscale node. No API secret is stored or requested here."
-    }
-  }
-
 }
 
 private struct TransferIdentityEditor: View {
   @ObservedObject var model: TransferModel
-  let provider: IdentityProvider
+  private let provider = IdentityProvider.tailscale
   let original: IdentityAccount?
   @Environment(\.dismiss) private var dismiss
   @State private var label = ""
@@ -250,7 +196,7 @@ private struct TransferIdentityModelView: View {
         Text("How it fits").font(.largeTitle.bold())
         GroupBox("Castalia Wallet") { modelRow("Local custody and signing", "Contains backed-up identity and Wallet data; signs only through the existing approval flow.") }
         Image(systemName: "arrow.down").foregroundStyle(.secondary)
-        GroupBox("Identities & accounts") { modelRow("Matrix · Nostr · Tailscale", "Public identifier + provider/server. Account records are not authentication proofs.") }
+        GroupBox("Wallet identities & accounts") { modelRow("Matrix · Nostr · GitHub · X", "Portable public descriptors are edited in Wallet and included in Castaway backups. Legacy application records are read-only; Tailscale stays in application settings.") }
         GroupBox("Protected authentication — provider adapters") { modelRow("Sessions, signing connections, scoped API authorization", "Future adapters keep secrets in protected storage. They do not place tokens or private keys in public account records.") }
         Divider()
         GroupBox("Resource permissions") { modelRow("Wallet → DevGraph grant → allowed operations", "Each graph verifies its own owner and credential grants, including their selected Arena/path scope.") }

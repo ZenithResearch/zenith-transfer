@@ -9,9 +9,10 @@ public enum IdentityProvider: String, Codable, CaseIterable, Identifiable, Senda
 }
 
 public enum IdentityAccountError: LocalizedError {
-  case invalid, changed, storage
+  case invalid, changed, storage, legacyReadOnly
   public var errorDescription: String? {
     switch self {
+    case .legacyReadOnly: return "Legacy Matrix/Nostr records are read-only. Manage identities in Wallet; originals are preserved."
     case .invalid: return "Check the public account identifier and server. Do not enter passwords, tokens or private keys here."
     case .changed: return "This account changed in another window. Reload before saving."
     case .storage: return "Account records could not be read or saved safely. Existing records were preserved."
@@ -106,6 +107,18 @@ public final class IdentityAccountRegistry {
     guard urls.count <= 100 else { throw IdentityAccountError.storage }
     return try urls.map(read).filter { $0.walletPublicKey == wallet }.sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
   }
+  /// Current application editing is reserved for network configuration.
+  /// Legacy Matrix/Nostr records can only be read or copied through the Wallet
+  /// preview flow; stale application forms must not create, edit or remove them.
+  public func saveApplicationRecord(_ value: IdentityAccount?, replacing expected: IdentityAccount?) throws {
+    guard value != nil || expected != nil,
+      value.map({ $0.provider == .tailscale }) ?? true,
+      expected.map({ $0.provider == .tailscale }) ?? true
+    else { throw IdentityAccountError.legacyReadOnly }
+    try save(value, replacing: expected)
+  }
+  /// Low-level compatibility storage, retained for loading historical records
+  /// and fixtures. Application editors must use saveApplicationRecord instead.
   public func save(_ value: IdentityAccount?, replacing expected: IdentityAccount?) throws {
     guard let id = value?.id ?? expected?.id,
       expected == nil || value == nil || (value?.id == expected?.id && value?.walletPublicKey == expected?.walletPublicKey)
