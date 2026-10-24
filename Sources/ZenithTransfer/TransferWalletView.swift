@@ -7,6 +7,8 @@ struct TransferWalletView: View {
   enum Section { case setup, recovery, security }
   @ObservedObject var model: TransferModel
   var section: Section = .setup
+  var onUnlocked: () -> Void = {}
+  @State private var unlockFailure: String?
   @State private var password = ""
   @State private var confirmation = ""
   @State private var filePassword = ""
@@ -39,6 +41,10 @@ struct TransferWalletView: View {
             Text("Your wallet stays on this device.").foregroundStyle(.secondary)
             TransferPasswordField(title: "Wallet password", text: $password, submit: unlock)
             Button("Unlock") { unlock() }.buttonStyle(TransferPrimaryButtonStyle()).disabled(model.busy || password.isEmpty)
+            if let unlockFailure {
+              Label(unlockFailure, systemImage: "exclamationmark.circle")
+                .font(.callout).foregroundStyle(.red).accessibilityIdentifier("wallet-unlock-error")
+            }
           } else if section == .recovery || !state.backupVerified {
             recovery(state)
           } else {
@@ -175,10 +181,15 @@ struct TransferWalletView: View {
     clearPasswords(); selectedFile = nil; selectedName = nil; preview = nil
   }
   private func unlock() {
-    guard !password.isEmpty else { return }; let secret = password; password = ""
+    guard !model.busy, !model.locking, !password.isEmpty else { return }; let secret = password; password = ""
+    notice = nil; unlockFailure = nil
     let lifecycle = model.repository?.lifecycleTicket()
     let identity = model.wallet?.publicKey
-    model.perform { try await $0.unlock(password: secret, expectedLifecycle: lifecycle, expectedIdentity: identity) }
+    model.perform(onFailure: { unlockFailure = $0 }, {
+      try await $0.unlock(password: secret, expectedLifecycle: lifecycle, expectedIdentity: identity)
+    }, success: { state in
+      if state.unlocked && model.walletUnlocked { onUnlocked() }
+    })
   }
   private func create() {
     let secret = password; clear()
@@ -218,6 +229,35 @@ struct TransferWalletView: View {
     model.perform({ try await $0.verifyBackup(file: data, password: secret) }) { _ in
       notice = "Recovery file checked against this Wallet."
     }
+  }
+}
+
+/// Modal caller owns navigation; the security destination itself remains open.
+/// Keep dismissal outside the busy Wallet body so an empty form or an in-flight
+/// unlock never traps the user. Disappearance invalidates unfinished custody work.
+struct TransferWalletSheet: View {
+  @ObservedObject var model: TransferModel
+  @Environment(\.dismiss) private var dismiss
+  var body: some View {
+    VStack(spacing: 0) {
+      HStack {
+        Text("Castalia Wallet").font(.headline)
+        Spacer()
+        Button("Close", action: close)
+          .keyboardShortcut(.cancelAction)
+          .accessibilityIdentifier("close-wallet-sheet")
+      }.padding(20)
+      Divider()
+      TransferWalletView(model: model, section: .security, onUnlocked: { dismiss() })
+    }.frame(width: 640, height: 640)
+      .onExitCommand(perform: close)
+  }
+  private func close() {
+    // Invalidate synchronously: SwiftUI can delay onDisappear until after an
+    // animation, which must not leave an unfinished unlock authorized.
+    model.repository?.invalidatePendingWork()
+    Task { await model.repository?.cancel() }
+    dismiss()
   }
 }
 

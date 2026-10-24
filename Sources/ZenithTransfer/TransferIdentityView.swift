@@ -48,7 +48,7 @@ struct TransferSettingsView: View {
           NavigationLink("Accounts and services") { TransferIdentityModelView() }
         }
       }.navigationTitle("Settings")
-    }.sheet(isPresented: $unlocking) { TransferWalletView(model: model, section: .security).frame(width: 640, height: 640) }
+    }.sheet(isPresented: $unlocking) { TransferWalletSheet(model: model) }
   }
 }
 private struct TransferNetworkSettingsView: View {

@@ -1,3 +1,12 @@
+## Wallet sheet navigation — build38
+
+- Add visible Close and Escape dismissal to the Settings account-unlock sheet.
+- Return to the retained account screen only after successful unlock.
+- Display closed, password-free unlock errors inline; leave security settings
+  usable as a normal navigation destination.
+- Keep modal dismissal available while custody work is pending and invalidate
+  unfinished work when leaving the Wallet form.
+
 ## Native identity consistency — build 37
 
 - Keep legacy Matrix/Nostr application records read-only and preserve their files.

@@ -119,7 +119,8 @@ import ZenithKit
       try registry.save(nil, replacing: value); resources = try registry.load()
     } catch { self.error = "The resource could not be removed. Its server grants are unchanged." }
   }
-  func perform<T>(_ action: @escaping (WalletRepository) async throws -> T,
+  func perform<T>(onFailure: ((String) -> Void)? = nil,
+    _ action: @escaping (WalletRepository) async throws -> T,
     success: @escaping (T) -> Void = { _ in }) {
     expire()
     guard !busy, !locking, let repository else { return }
@@ -142,8 +143,9 @@ import ZenithKit
         wallet=state
         // WalletFailure exposes a closed, password-free set of messages. Never
         // display arbitrary native/system error text or interpolate input.
-        self.error = (error as? WalletFailure)?.errorDescription
+        let message = (error as? WalletFailure)?.errorDescription
           ?? "Wallet could not complete this step. No password or key has been logged."
+        if let onFailure { onFailure(message) } else { self.error = message }
       }
     }
   }
