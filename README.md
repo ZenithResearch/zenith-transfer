@@ -39,6 +39,12 @@ The public dependency preserves the native ABI, encrypted recovery format, and
 graph/operator/owner consent used by the earlier private pin. Source provenance
 is recorded in the Wallet repository's `TRANSFER-NATIVE-SOURCE.json`.
 
+The current development app is **0.2.0 build 33**. Its pinned Wallet revision is
+`7d81c5b0a9f74271fb5b2d5ea8d2711df40bf485`, the same public repository revision
+used for the Castalia Chrome 0.0.2 preview. Native and browser clients expose
+different interfaces over the shared core; aligning the source does not enable
+new credential schemas or grant permissions.
+
 ## Identities & accounts
 
 Wallet has three views: **Identities & accounts**, **Wallet & security**, and
@@ -58,6 +64,14 @@ DevGraph credentials remain in **Resources & requests**, with presets/custom
 operations and Arena/path scopes. The server verifies Wallet-signed decisions;
 an account record, discovery entry, local network connection or unlocked Wallet
 alone never creates authority. Onward delegation remains disabled.
+
+Locally registered services use their protected secS RPC binding even when their
+advertised HTTPS profile is for LAN or Tailnet access. Transfer rechecks the
+registration, full configuration and fixed adapter hash before dispatch, and
+does not silently fall back to HTTP when a local binding is missing or changed.
+Hierarchical credential selection keeps its original path and recovery checks.
+An Arena path can constrain Work access; reading Arena records themselves needs
+a separately versioned receiver and native scope contract.
 
 ## Boundaries and provenance
 
