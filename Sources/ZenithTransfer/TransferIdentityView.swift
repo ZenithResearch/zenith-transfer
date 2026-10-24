@@ -40,7 +40,7 @@ struct TransferSettingsView: View {
     NavigationStack {
       List {
         Section("Application settings") {
-          NavigationLink("Network") { TransferNetworkSettingsView(openResources: openResources) }
+          NavigationLink("Network") { TransferNetworkSettingsView(model: model, openResources: openResources) }
           NavigationLink("Application accounts") { TransferIdentityAccountsView(model: model, showWallet: { unlocking = true }) }
           NavigationLink("Membership provider") { TransferMembershipView(model: model) }
           NavigationLink("Unlock & security") { TransferWalletView(model: model, section: .security) }
@@ -49,45 +49,6 @@ struct TransferSettingsView: View {
         }
       }.navigationTitle("Settings")
     }.sheet(isPresented: $unlocking) { TransferWalletSheet(model: model) }
-  }
-}
-private struct TransferNetworkSettingsView: View {
-  var openResources: () -> Void
-  @State private var host: PublicationSnapshot?
-  @State private var checking = false
-  @State private var hostError: String?
-  var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 24) {
-        Text("Network").font(.largeTitle.bold())
-        tailscaleHost
-        Button("Manage saved services and sharing", action: openResources)
-        Text("Saved addresses, service discovery, LAN access, private Tailnet and public Funnel settings are application configuration. They are not included in Wallet backups.").foregroundStyle(.secondary)
-      }.frame(maxWidth: 680, alignment: .leading).frame(maxWidth: .infinity).padding(24)
-    }
-  }
-  private var tailscaleHost: some View {
-    GroupBox("This Mac’s Tailscale service") {
-      VStack(alignment: .leading, spacing: 10) {
-        if let host {
-          Label(host.running ? "Host connected" : "Host disconnected", systemImage: host.running ? "checkmark.circle" : "network.slash")
-          Text(host.dnsName).font(.callout.monospaced()).textSelection(.enabled)
-          Text("Configured HTTPS ports: " + (host.occupiedPorts.isEmpty ? "None" : host.occupiedPorts.sorted().map(String.init).joined(separator: ", "))).font(.caption)
-          Text("Public Funnel ports: " + (host.publicPorts.isEmpty ? "None" : host.publicPorts.sorted().map(String.init).joined(separator: ", "))).font(.caption)
-        }
-        Text("Node keys and the persistent connection stay with Tailscale. This observation does not verify a saved account or authorize DevGraph access.").font(.callout).foregroundStyle(.secondary)
-        Button(checking ? "Reading host status…" : "Refresh host status") {
-          checking = true; hostError = nil
-          Task {
-            do { host = try await TailscalePublicationInspector.inspect() }
-            catch { host = nil; hostError = "Tailscale status is unavailable. Open Tailscale on this Mac and try again." }
-            checking = false
-          }
-        }.disabled(checking)
-        if let hostError { Text(hostError).font(.caption).foregroundStyle(.secondary) }
-        Text("To review sharing for a service, select it in Resources & requests → Sharing & network.").font(.caption).foregroundStyle(.secondary)
-      }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
-    }
   }
 }
 
