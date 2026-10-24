@@ -1,3 +1,31 @@
+## Portable Wallet identities — unreleased
+
+- Pin shared public core0.3.0 at `054b372d686e2f8dba0ad8bbd166adbde9ebab38`.
+- Add core-owned Matrix/Nostr/GitHub/X public identity descriptors with reviewed
+  edits and explicit copying of legacy app records; preserve originals/Tailscale.
+- Read and review Castawayv2 before writing it, preserve v1 files and newer records
+  during old-file imports, and show existing derived crypto account addresses.
+- Cover descriptor bounds, conflicts, encryption, actual backup/restore and
+  lock/stale-revision behavior with native C ABI integration tests.
+
+## Wallet backup boundary — unreleased
+
+- Restrict Wallet navigation to data covered by implemented recovery or Castaway
+  backup paths. Show portable membership proofs instead of provider setup.
+- Move application account records, Network, provider setup and unlock settings
+  into Settings; preserve existing storage and exports.
+- Keep service access outside Wallet until database backup/restore coverage exists.
+
+## Native Wallet consistency — unreleased
+
+- Share the Wallet home, public account records, password visibility/Copy controls
+  and recovery-password reuse across macOS, iPad and iPhone.
+- Default automatic lock to one hour of inactivity, with 15-minute, four-hour and
+  until-lock-or-quit choices; preserve existing timeout preferences.
+- Keep unlock separate from every connection and signing review; expired input
+  cannot revive custody, and background refreshes cannot extend it.
+- Pin the native core to public Castalia `575895f70e4cbdc982b7c9271b468470271dbb0b`.
+
 # Changelog
 
 All notable changes to this project are documented here.

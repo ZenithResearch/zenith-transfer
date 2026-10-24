@@ -121,6 +121,7 @@ import ZenithKit
   }
   func perform<T>(_ action: @escaping (WalletRepository) async throws -> T,
     success: @escaping (T) -> Void = { _ in }) {
+    expire()
     guard !busy, !locking, let repository else { return }
     busy = true; error = nil
     let expected = generation
@@ -130,7 +131,8 @@ import ZenithKit
         let state = try await repository.state()
         guard generation == expected else { busy = false; return }
         wallet=state
-        try reloadIdentityAccounts()
+        // Account metadata failure must not misreport a completed custody action.
+        if (try? reloadIdentityAccounts()) == nil { identityAccounts = [] }
         expire()
         guard generation == expected else { busy=false;return }
         busy = false; success(value)
@@ -153,6 +155,12 @@ import ZenithKit
     unlockTimer.clear()
     Task { await repository?.lock(); wallet = try? await repository?.state();locking=false }
   }
+  func userActivity() {
+    expire()
+    guard walletUnlocked else { return }
+    let time=clock()
+    unlockTimer.activity(unlockDuration,now:time.0,uptime:time.1)
+  }
   func expire() {
     let time=clock()
     if unlockTimer.expired(unlockDuration,now:time.0,uptime:time.1) { lock() }
@@ -170,6 +178,7 @@ struct TransferConsole: View {
         nav("Resources & requests", "square.stack.3d.up", "resources")
         nav("Credential presets", "slider.horizontal.3", "presets")
         nav("Wallet", "wallet.pass", "wallet")
+        nav("Settings", "gearshape", "settings")
         nav("Transfer files", "qrcode", "files")
         Spacer()
         Text(model.walletUnlocked ? "Transfer Wallet unlocked" : "Transfer Wallet locked")
@@ -181,12 +190,14 @@ struct TransferConsole: View {
       Group {
         switch section {
         case "presets": TransferPresetsView(library: model.presetLibrary)
-        case "wallet": TransferWalletWorkspace(model: model)
+        case "wallet": TransferWalletWorkspace(model: model, openAccess: { section = "resources" })
+        case "settings": TransferSettingsView(model: model, openResources: { section = "resources" })
         case "files": TransferWindow(catalogModel: model.fileCatalog)
         default: TransferResourcesView(model: model)
         }
       }.frame(maxWidth: .infinity, maxHeight: .infinity)
-    }.task { await model.refresh(); await model.discoverLocalResources() }
+    }.walletUserActivity { model.userActivity() }
+      .task { await model.refresh(); await model.discoverLocalResources() }
       .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
         model.expire()
         Task { await model.discoverLocalResources() }

@@ -29,5 +29,6 @@ public struct PortableSections: Decodable, Sendable {
   }
   public let memberships: [Proof]?
   public let scopedMemberships: [Proof]?
+  public let walletIdentities: WalletIdentitySection?
   public var proofs: [Proof] { (memberships ?? []) + (scopedMemberships ?? []) }
 }

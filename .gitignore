@@ -16,3 +16,6 @@ __pycache__/
 *.key
 *.p12
 *.mobileprovision
+
+# Local UI screenshots, review logs and test-only preview binaries.
+artifacts/

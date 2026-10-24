@@ -63,7 +63,7 @@ public struct IdentityAccount: Codable, Equatable, Identifiable, Sendable {
   }
   public static func decode(_ data: Data) throws -> Self {
     guard data.count <= 4096 else { throw IdentityAccountError.invalid }
-    var strict = OwnerPlanJSON(data, maximumBytes: 4096, maximumKeys: 20)
+    var strict = AccountRecordJSON(data, maximumBytes: 4096, maximumKeys: 20)
     try strict.validate()
     guard let raw = try JSONSerialization.jsonObject(with: data) as? [String: Any],
       Set(raw.keys) == ["schema", "id", "walletPublicKey", "provider", "label", "identifier", "server"]
@@ -81,6 +81,11 @@ public final class IdentityAccountRegistry {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     let v = try directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
     guard v.isDirectory == true, v.isSymbolicLink != true else { throw IdentityAccountError.storage }
+    #if os(iOS)
+    try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: directory.path)
+    var excluded = URLResourceValues(); excluded.isExcludedFromBackup = true
+    var mutable = directory; try mutable.setResourceValues(excluded)
+    #endif
   }
   private func file(_ id: UUID) -> URL { directory.appendingPathComponent(id.uuidString.lowercased() + ".json") }
   private func read(_ url: URL) throws -> IdentityAccount {
@@ -120,10 +125,72 @@ public final class IdentityAccountRegistry {
           }
           try JSONEncoder().encode(value).write(to: target, options: .atomic)
           try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
+          #if os(iOS)
+          try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: target.path)
+          #endif
         } else if current != nil { try FileManager.default.removeItem(at: target) }
       }
     }
     guard coordinationError == nil else { throw IdentityAccountError.storage }
     try result.get()
+  }
+}
+
+/// Bounded integer-only JSON; decode escaped keys before duplicate detection.
+struct AccountRecordJSON {
+  let bytes: [UInt8]; var cursor = 0
+  let maximumBytes: Int, maximumKeys: Int, maximumArray: Int, maximumDepth: Int
+  init(_ data: Data, maximumBytes: Int = 65536, maximumKeys: Int = 20, maximumArray: Int = 64, maximumDepth: Int = 8) {
+    bytes = Array(data); self.maximumBytes = maximumBytes; self.maximumKeys = maximumKeys
+    self.maximumArray = maximumArray; self.maximumDepth = maximumDepth
+  }
+  mutating func space() { while cursor < bytes.count && [9,10,13,32].contains(bytes[cursor]) { cursor += 1 } }
+  mutating func take(_ byte: UInt8) throws {
+    space(); guard cursor < bytes.count, bytes[cursor] == byte else { throw IdentityAccountError.invalid }; cursor += 1
+  }
+  mutating func string() throws -> String {
+    space(); let start = cursor; try take(34); var escaped = false
+    while cursor < bytes.count {
+      let byte = bytes[cursor]; cursor += 1
+      if escaped { escaped = false; continue }
+      if byte == 92 { escaped = true; continue }
+      if byte == 34 { return try JSONDecoder().decode(String.self, from: Data(bytes[start..<cursor])) }
+    }
+    throw IdentityAccountError.invalid
+  }
+  mutating func value(_ depth: Int) throws {
+    space(); guard depth <= maximumDepth, cursor < bytes.count else { throw IdentityAccountError.invalid }
+    switch bytes[cursor] {
+    case 34: _ = try string()
+    case 123:
+      try take(123); space(); var keys: Set<String> = []
+      if cursor < bytes.count && bytes[cursor] == 125 { cursor += 1; return }
+      while true {
+        let key = try string(); guard keys.insert(key).inserted, keys.count <= maximumKeys else { throw IdentityAccountError.invalid }
+        try take(58); try value(depth+1); space()
+        guard cursor < bytes.count else { throw IdentityAccountError.invalid }
+        if bytes[cursor] == 125 { cursor += 1; break }; try take(44)
+      }
+    case 91:
+      try take(91); space(); var count = 0
+      if cursor < bytes.count && bytes[cursor] == 93 { cursor += 1; return }
+      while true {
+        count += 1; guard count <= maximumArray else { throw IdentityAccountError.invalid }
+        try value(depth+1); space(); guard cursor < bytes.count else { throw IdentityAccountError.invalid }
+        if bytes[cursor] == 93 { cursor += 1; break }; try take(44)
+      }
+    default:
+      for literal in ["true", "false", "null"] {
+        if bytes[cursor...].starts(with: Array(literal.utf8)) { cursor += literal.utf8.count; return }
+      }
+      let start = cursor
+      while cursor < bytes.count && (48...57).contains(bytes[cursor]) { cursor += 1 }
+      guard cursor > start, cursor - start == 1 || bytes[start] != 48,
+        let value = UInt64(String(decoding: bytes[start..<cursor], as: UTF8.self)), value <= 9_007_199_254_740_991 else { throw IdentityAccountError.invalid }
+    }
+  }
+  mutating func validate() throws {
+    guard !bytes.isEmpty, bytes.count <= maximumBytes else { throw IdentityAccountError.invalid }
+    try value(0); space(); guard cursor == bytes.count else { throw IdentityAccountError.invalid }
   }
 }

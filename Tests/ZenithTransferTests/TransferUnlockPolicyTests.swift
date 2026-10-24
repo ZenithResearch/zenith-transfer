@@ -89,5 +89,27 @@ final class TransferUnlockPolicyTests:XCTestCase {
     model.unlockDuration = .twoMinutes
     XCTAssertFalse(model.walletUnlocked)
   }
+  @MainActor func testActualActivityExtendsIdleButOverdueClickLocksBeforeSigning() async throws {
+    let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:root) }
+    let name="TransferActivityTests."+UUID().uuidString,defaults=UserDefaults(suiteName:name)!
+    defer { defaults.removePersistentDomain(forName:name) }
+    var seconds:TimeInterval=1000
+    let model=TransferModel(directory:root,defaults:defaults,clock:{(Date(timeIntervalSince1970:seconds),seconds)})
+    let repo=try XCTUnwrap(model.repository)
+    _ = try await repo.create(password:"disposable activity test password")
+    await model.refresh()
+    seconds += 3500;model.userActivity()
+    XCTAssertEqual(model.unlockDeadline,Date(timeIntervalSince1970:8100))
+    seconds += 100;await model.refresh()
+    XCTAssertTrue(model.walletUnlocked)
+    let ticket=repo.lifecycleTicket()
+    seconds = 8100;model.userActivity()
+    XCTAssertFalse(model.walletUnlocked)
+    XCTAssertThrowsError(try repo.checkLifecycle(ticket))
+    for _ in 0..<100 { if !model.locking { break };try await Task.sleep(nanoseconds:1_000_000) }
+    let state=try await repo.state();XCTAssertFalse(state.unlocked)
+  }
+
 }
 #endif

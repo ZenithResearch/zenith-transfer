@@ -4,19 +4,89 @@ import ZenithKit
 
 struct TransferWalletWorkspace: View {
   @ObservedObject var model: TransferModel
-  @State private var page = "accounts"
+  var openAccess: () -> Void = {}
+  @State private var path: [WalletDestination] = []
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      Picker("Wallet workspace", selection: $page) {
-        Text("Identities & accounts").tag("accounts")
-        Text("Wallet & security").tag("security")
-        Text("How it fits").tag("model")
-      }.pickerStyle(.segmented).padding([.horizontal, .top], 24).padding(.bottom, 12)
-      switch page {
-      case "security": TransferWalletView(model: model)
-      case "model": TransferIdentityModelView()
-      default: TransferIdentityAccountsView(model: model, showWallet: { page = "security" })
+    NavigationStack(path: $path) {
+      Group {
+        if model.wallet?.configured != true || (model.walletUnlocked && model.wallet?.backupVerified != true) {
+          TransferWalletView(model: model, section: model.walletUnlocked ? .recovery : .setup)
+        } else {
+          WalletHomeContent(publicKey: model.displayPublicKey, unlocked: model.walletUnlocked,
+            backupVerified: model.wallet?.backupVerified == true, membershipActive: model.wallet?.membershipActive == true,
+            accessSummary: "Review access for your registered services", open: { destination in
+              if destination == .access { openAccess() } else { path.append(destination) }
+            }, lock: model.lock)
+        }
+      }.navigationDestination(for: WalletDestination.self) { destination in
+        switch destination {
+        case .identities: PortableWalletIdentitiesView(repository: model.repository, unlocked: model.walletUnlocked, legacy: model.identityAccounts, changed: { Task { await model.refresh() } })
+        case .membership: WalletMembershipContent(repository: model.repository, unlocked: model.walletUnlocked)
+        case .recovery: TransferRecoveryView(model: model)
+        case .security: TransferWalletView(model: model, section: .security)
+        case .access: Text("Choose a service in Resources & requests.")
+        case .about: ScrollView { VStack { WalletAboutContent(); NavigationLink("How accounts and this Mac fit together") { TransferIdentityModelView() }.padding() } }
+        }
       }
+    }
+  }
+}
+
+struct TransferSettingsView: View {
+  @ObservedObject var model: TransferModel
+  var openResources: () -> Void
+  @State private var unlocking = false
+  var body: some View {
+    NavigationStack {
+      List {
+        Section("Application settings") {
+          NavigationLink("Network") { TransferNetworkSettingsView(openResources: openResources) }
+          NavigationLink("Application accounts") { TransferIdentityAccountsView(model: model, showWallet: { unlocking = true }) }
+          NavigationLink("Membership provider") { TransferMembershipView(model: model) }
+          NavigationLink("Unlock & security") { TransferWalletView(model: model, section: .security) }
+          NavigationLink("How Wallet and application storage differ") { WalletAboutContent() }
+          NavigationLink("Accounts and services") { TransferIdentityModelView() }
+        }
+      }.navigationTitle("Settings")
+    }.sheet(isPresented: $unlocking) { TransferWalletView(model: model, section: .security).frame(width: 640, height: 640) }
+  }
+}
+private struct TransferNetworkSettingsView: View {
+  var openResources: () -> Void
+  @State private var host: PublicationSnapshot?
+  @State private var checking = false
+  @State private var hostError: String?
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 24) {
+        Text("Network").font(.largeTitle.bold())
+        tailscaleHost
+        Button("Manage saved services and sharing", action: openResources)
+        Text("Saved addresses, service discovery, LAN access, private Tailnet and public Funnel settings are application configuration. They are not included in Wallet backups.").foregroundStyle(.secondary)
+      }.frame(maxWidth: 680, alignment: .leading).frame(maxWidth: .infinity).padding(24)
+    }
+  }
+  private var tailscaleHost: some View {
+    GroupBox("This Mac’s Tailscale service") {
+      VStack(alignment: .leading, spacing: 10) {
+        if let host {
+          Label(host.running ? "Host connected" : "Host disconnected", systemImage: host.running ? "checkmark.circle" : "network.slash")
+          Text(host.dnsName).font(.callout.monospaced()).textSelection(.enabled)
+          Text("Configured HTTPS ports: " + (host.occupiedPorts.isEmpty ? "None" : host.occupiedPorts.sorted().map(String.init).joined(separator: ", "))).font(.caption)
+          Text("Public Funnel ports: " + (host.publicPorts.isEmpty ? "None" : host.publicPorts.sorted().map(String.init).joined(separator: ", "))).font(.caption)
+        }
+        Text("Node keys and the persistent connection stay with Tailscale. This observation does not verify a saved account or authorize DevGraph access.").font(.callout).foregroundStyle(.secondary)
+        Button(checking ? "Reading host status…" : "Refresh host status") {
+          checking = true; hostError = nil
+          Task {
+            do { host = try await TailscalePublicationInspector.inspect() }
+            catch { host = nil; hostError = "Tailscale status is unavailable. Open Tailscale on this Mac and try again." }
+            checking = false
+          }
+        }.disabled(checking)
+        if let hostError { Text(hostError).font(.caption).foregroundStyle(.secondary) }
+        Text("To review sharing for a service, select it in Resources & requests → Sharing & network.").font(.caption).foregroundStyle(.secondary)
+      }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 }
@@ -39,8 +109,8 @@ private struct TransferIdentityAccountsView: View {
     VStack(alignment: .leading, spacing: 20) {
       HStack(alignment: .top) {
         VStack(alignment: .leading, spacing: 6) {
-          Text("Identities & accounts").font(.largeTitle.bold())
-          Text("Your public account details, separate from protected authentication and resource permissions.").foregroundStyle(.secondary)
+          Text("Application accounts").font(.largeTitle.bold())
+          Text("Local public account records. These are application settings and are not included in Wallet backups.").foregroundStyle(.secondary)
         }
         Spacer()
         Button("Add account") { adding = true }.disabled(!model.walletUnlocked)
@@ -98,8 +168,7 @@ private struct TransferIdentityAccountsView: View {
                   Text("Passwords, private keys and access tokens do not belong in these account details.").font(.caption).foregroundStyle(.secondary)
                 }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
               }
-              if provider == .tailscale { tailscaleHost }
-              else {
+              if provider != .tailscale {
                 GroupBox("Where this identity is used") {
                   Text(provider == .matrix ? "Matrix accounts can support chat and request notifications. Signing in and message delivery are not enabled by saving this record." : "Nostr identities can support membership requests. A provider login or signing adapter is not yet connected to this account record.")
                     .foregroundStyle(.secondary).padding(8).frame(maxWidth: .infinity, alignment: .leading)
@@ -134,29 +203,7 @@ private struct TransferIdentityAccountsView: View {
     case .tailscale: return "Account/API authorization is separate from this Mac’s Tailscale node. No API secret is stored or requested here."
     }
   }
-  private var tailscaleHost: some View {
-    GroupBox("This Mac’s Tailscale service") {
-      VStack(alignment: .leading, spacing: 10) {
-        if let host {
-          Label(host.running ? "Host connected" : "Host disconnected", systemImage: host.running ? "checkmark.circle" : "network.slash")
-          Text(host.dnsName).font(.callout.monospaced()).textSelection(.enabled)
-          Text("Configured HTTPS ports: " + (host.occupiedPorts.isEmpty ? "None" : host.occupiedPorts.sorted().map(String.init).joined(separator: ", "))).font(.caption)
-          Text("Public Funnel ports: " + (host.publicPorts.isEmpty ? "None" : host.publicPorts.sorted().map(String.init).joined(separator: ", "))).font(.caption)
-        }
-        Text("Node keys and the persistent connection stay with Tailscale. This observation does not verify a saved account or authorize DevGraph access.").font(.callout).foregroundStyle(.secondary)
-        Button(checking ? "Reading host status…" : "Refresh host status") {
-          checking = true; hostError = nil
-          Task {
-            do { host = try await TailscalePublicationInspector.inspect() }
-            catch { host = nil; hostError = "Tailscale status is unavailable. Open Tailscale on this Mac and try again." }
-            checking = false
-          }
-        }.disabled(checking)
-        if let hostError { Text(hostError).font(.caption).foregroundStyle(.secondary) }
-        Text("To review sharing for a service, select it in Resources & requests → Sharing & network.").font(.caption).foregroundStyle(.secondary)
-      }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
-    }
-  }
+
 }
 
 private struct TransferIdentityEditor: View {
@@ -201,7 +248,7 @@ private struct TransferIdentityModelView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 20) {
         Text("How it fits").font(.largeTitle.bold())
-        GroupBox("Castalia Wallet") { modelRow("Local custody and signing", "Organizes public account records; signs only through the existing approval flow.") }
+        GroupBox("Castalia Wallet") { modelRow("Local custody and signing", "Contains backed-up identity and Wallet data; signs only through the existing approval flow.") }
         Image(systemName: "arrow.down").foregroundStyle(.secondary)
         GroupBox("Identities & accounts") { modelRow("Matrix · Nostr · Tailscale", "Public identifier + provider/server. Account records are not authentication proofs.") }
         GroupBox("Protected authentication — provider adapters") { modelRow("Sessions, signing connections, scoped API authorization", "Future adapters keep secrets in protected storage. They do not place tokens or private keys in public account records.") }

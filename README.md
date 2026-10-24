@@ -39,16 +39,16 @@ The public dependency preserves the native ABI, encrypted recovery format, and
 graph/operator/owner consent used by the earlier private pin. Source provenance
 is recorded in the Wallet repository's `TRANSFER-NATIVE-SOURCE.json`.
 
-The current development app is **0.2.0 build 33**. Its pinned Wallet revision is
-`7d81c5b0a9f74271fb5b2d5ea8d2711df40bf485`, the same public repository revision
-used for the Castalia Chrome 0.0.2 preview. Native and browser clients expose
+The current development app is **0.2.0 build 36**. Its pinned Wallet revision is
+`054b372d686e2f8dba0ad8bbd166adbde9ebab38`, the common public Castalia core
+0.3.0 baseline also used for the native iOS build. Native and browser clients expose
 different interfaces over the shared core; aligning the source does not enable
 new credential schemas or grant permissions.
 
 ## Identities & accounts
 
-Wallet has three views: **Identities & accounts**, **Wallet & security**, and
-**How it fits**. Add, edit or remove Matrix IDs/homeservers, Nostr public keys/relays
+Application account records are managed in **Settings → Application accounts**.
+Wallet itself contains backup-covered identity, membership proofs and recovery. Add, edit or remove Matrix IDs/homeservers, Nostr public keys/relays
 and Tailscale account/Tailnet records. Records are local public metadata, partitioned
 by the Castalia public key; they do not prove account ownership or authenticate.
 Editing requires the matching unlocked Wallet. Readable records stay visible
@@ -90,3 +90,9 @@ a separately versioned receiver and native scope contract.
 
 See [update spec](docs/identities-update-spec.md),
 [architecture](docs/architecture.md), and [security limits](SECURITY.md).
+
+The [native Wallet experience](docs/native-wallet-experience.md) describes the shared
+Wallet home, recovery/password controls and configurable inactivity lock.
+
+Portable identities use the shared [Castaway v2 contract](docs/portable-wallet-identities.md),
+with explicit review before copying original application records into Wallet.

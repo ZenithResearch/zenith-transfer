@@ -13,6 +13,10 @@ public enum WalletFailure: Error, Equatable, LocalizedError {
     case .invalidFile: return "This file could not be read. Choose an encrypted recovery file."
     case .core(let code):
       switch code {
+      case "identity_conflict", "duplicate_or_invalid_identity":
+        return "An identity conflicts with a saved record. Nothing was overwritten; review the records separately."
+      case "invalid_wallet_identities", "unsupported_identity_fields", "invalid_identity_text", "invalid_provider_identity", "identities_too_large", "identity_limit":
+        return "Check the public identity fields. Passwords, tokens, private keys and session data are not accepted here."
       case "password_minimum_12": return "Use a password with at least 12 characters."
       case "backup_verification_required": return "Check your saved recovery file first."
       case "wallet_already_exists":

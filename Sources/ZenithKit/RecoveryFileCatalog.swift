@@ -9,7 +9,7 @@ public struct RecoveryFileFormat: Equatable, Sendable {
   public let contentsSchema: String?
   public let legacyFilename: Bool
   public var title: String { kind == .recovery ? "Wallet recovery" : "Castaway data" }
-  public var version: String { "v1" }
+  public var version: String { schema == "castalia.castaway.v2" ? "v2" : "v1" }
   public var badge: String { legacyFilename ? "Legacy filename" : "Current format" }
   public var explanation: String {
     if legacyFilename {
