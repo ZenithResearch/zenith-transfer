@@ -5,10 +5,11 @@ public enum PrivateNetworkPhase: Equatable, Sendable {
   case idle, connecting, signInRequired, awaitingApproval, connected, paused, failed
 }
 public enum PrivateNetworkError: Error, LocalizedError, Equatable {
-  case disconnected, invalidStatus, interrupted, invalidAuthKey, enrollmentFailed
+  case disconnected, invalidStatus, interrupted, invalidAuthKey, enrollmentFailed, savedIdentityUnavailable
   public var errorDescription: String? {
     switch self {
     case .disconnected: return "Connect Tailscale in Connection before trying again."
+    case .savedIdentityUnavailable: return "No saved Tailscale device identity is available. Enroll this installation with a new auth key or use browser sign-in."
     case .invalidAuthKey: return "Use a Tailscale auth key beginning with tskey-auth-."
     case .enrollmentFailed: return "Tailscale enrollment did not complete. Check that the auth key is valid, unexpired and unused, then try again. Your network may also require device approval."
     case .invalidStatus: return "The private connection could not be verified. Reconnect Tailscale to try again."
@@ -55,6 +56,7 @@ public struct PrivateNetworkStatus: Sendable {
 
 public protocol PrivateNetworkDriver: Sendable {
   func start(interactive: Bool) async throws
+  func hasStoredState() async throws -> Bool
   func enroll(authKey: String) async throws
   func status() async throws -> PrivateNetworkStatus
   func configuration() async throws -> URLSessionConfiguration
@@ -63,6 +65,7 @@ public protocol PrivateNetworkDriver: Sendable {
 
 /// Older drivers fail closed rather than silently starting browser sign-in.
 public extension PrivateNetworkDriver {
+  func hasStoredState() async throws -> Bool { false }
   func enroll(authKey: String) async throws { throw PrivateNetworkError.enrollmentFailed }
 }
 
@@ -103,29 +106,79 @@ public final class PrivateNetworkSession: ObservableObject {
   @Published public private(set) var authURL: URL?
   @Published public private(set) var message: String?
   @Published public private(set) var generation = 0
+  @Published public private(set) var hasSavedConnection = false
+  @Published public private(set) var automaticallyReconnect: Bool
+  public static let automaticReconnectKey = "network.tailscale.reconnectAutomatically.v1"
+  public static let connectionRequestedKey = "network.tailscale.connectionRequested.v1"
+  private let preferences: UserDefaults?
+  private var rememberedConnection: Bool?
+  private var restorationGeneration: Int?
   private let driver: any PrivateNetworkDriver
   private var operation: Task<Void, Never>?
   private var resumeRequested = false
   private var enrollmentInput: PendingEnrollment?
   private struct WeakTransport { weak var value: PrivateTransport? }
   private var transports: [WeakTransport] = []
-  public init(driver: any PrivateNetworkDriver) { self.driver = driver }
+  public init(driver: any PrivateNetworkDriver, preferences: UserDefaults? = nil) {
+    self.driver = driver
+    self.preferences = preferences
+    automaticallyReconnect = preferences?.object(forKey: Self.automaticReconnectKey) as? Bool ?? true
+    rememberedConnection = preferences?.object(forKey: Self.connectionRequestedKey) as? Bool
+  }
+
+  /// Probe metadata once per lifecycle generation. Existing installations with no new
+  /// preference migrate by reusing their existing state, never an enrollment key.
+  public func restoreSavedConnection() async {
+    guard phase == .idle, restorationGeneration != generation else { return }
+    let ticket = generation
+    restorationGeneration = ticket
+    do {
+      let saved = try await driver.hasStoredState()
+      guard ticket == generation, phase == .idle, !Task.isCancelled else {
+        return
+      }
+      hasSavedConnection = saved
+      if saved && automaticallyReconnect && rememberedConnection != false {
+        begin(interactive: false)
+      }
+    } catch {
+      guard ticket == generation, !Task.isCancelled else { return }
+      restorationGeneration = nil
+      message = "Couldn’t open the saved Tailscale connection. Unlock this device and choose Reconnect."
+    }
+  }
+  public func reconnect() { begin(interactive: false) }
+  public func setAutomaticallyReconnect(_ enabled: Bool) {
+    automaticallyReconnect = enabled
+    preferences?.set(enabled, forKey: Self.automaticReconnectKey)
+  }
+  private func rememberConnection(_ wanted: Bool) {
+    rememberedConnection = wanted
+    preferences?.set(wanted, forKey: Self.connectionRequestedKey)
+  }
 
   public func connect() { begin(interactive: true) }
   public func enroll(authKey: String) throws {
     let pending = PendingEnrollment(try TailscaleEnrollment.validatedKey(authKey))
     begin(interactive: false, enrollment: pending)
   }
-  public func disconnect() { stop(phase: .idle, resume: false) }
+  public func disconnect() {
+    rememberConnection(false)
+    stop(phase: .idle, resume: false)
+  }
   public func cancelSignIn() { disconnect() }
   public func suspend() {
-    let wanted = phase != .idle && phase != .failed
+    let wanted = automaticallyReconnect && (phase != .idle && phase != .failed
+      || (hasSavedConnection && rememberedConnection == true))
     stop(phase: wanted ? .paused : .idle, resume: wanted)
   }
   public func resume() {
-    guard resumeRequested else { return }
-    resumeRequested = false
-    begin(interactive: false)
+    if resumeRequested {
+      resumeRequested = false
+      begin(interactive: false)
+    } else {
+      Task { await restoreSavedConnection() }
+    }
   }
   public func transport(requestTimeout: TimeInterval = 20, resourceTimeout: TimeInterval = 30) -> PrivateTransport {
     let transport = PrivateTransport(configurationProvider: { [weak self] in
@@ -192,7 +245,11 @@ public final class PrivateNetworkSession: ObservableObject {
           // when an invalid key makes the control plane return NeedsLogin.
           self.phase = enrollment != nil && status.phase == .signInRequired ? .connecting : status.phase
           self.networkName = status.networkName
-          self.authURL = enrollment == nil ? status.authURL : nil
+          if status.phase == .connected {
+            if !self.hasSavedConnection { self.hasSavedConnection = true }
+            if self.rememberedConnection != true { self.rememberConnection(true) }
+          }
+          self.authURL = interactive && enrollment == nil ? status.authURL : nil
           let timeout: TimeInterval = enrollment == nil || status.phase == .awaitingApproval ? 300 : 45
           if status.phase != .connected && Date().timeIntervalSince(started) > timeout {
             throw PrivateNetworkError.disconnected
@@ -203,8 +260,11 @@ public final class PrivateNetworkSession: ObservableObject {
         if let self, ticket == self.generation, !Task.isCancelled {
           self.invalidate()
           self.phase = .failed
+          if error as? PrivateNetworkError == .savedIdentityUnavailable { self.hasSavedConnection = false }
           self.message = enrollment == nil
-            ? "Couldn’t connect Tailscale. Check your internet connection and try again."
+            ? (error as? PrivateNetworkError == .savedIdentityUnavailable
+              ? PrivateNetworkError.savedIdentityUnavailable.localizedDescription
+              : "Couldn’t connect Tailscale. Check your internet connection and choose Reconnect.")
             : PrivateNetworkError.enrollmentFailed.localizedDescription
         }
       }
