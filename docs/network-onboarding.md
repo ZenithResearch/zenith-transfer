@@ -10,18 +10,20 @@ Nothing is connected or replaced merely by finding or choosing a file.
 ## Tailscale
 
 1. Install the official Tailscale app using **Install Tailscale**, then open it.
-   You can sign in there, or use an enrollment file supplied by the person who
-   manages your network. An existing host connection is reused; Transfer does not
+   Auth-key enrollment is the preferred new-device path; browser sign-in
+   remains available in Tailscale. An existing host connection is reused; Transfer does not
    change a Mac already associated with a network to a different network.
 2. A Tailscale connection file is plain UTF-8 text containing only a `tskey-auth-`
    enrollment key, optionally followed by a newline. Transfer discovers `.txt`,
    `.key` and `.tailscale-key` files in its ConnectionFiles folder. It accepts the
    same key format as the existing iOS enrollment-file importer.
-3. If you manage the network, expand **How to get a Tailscale connection file**
+3. If you manage the network, expand **How to get a Tailscale auth-key file**
    and open **Tailscale Keys**. Generate a one-time, non-ephemeral key with
-   **Reusable** and **Ephemeral** off. Choose **Create connection file** in
+   **Reusable** and **Ephemeral** off. Choose **Create auth-key file** in
    Transfer, paste the key into the protected field, and save a new file. No
    Terminal command, JSON editing, URL entry or LLM is needed for this step.
+   Use a different one-time key for each Mac, iPad or iPhone installation.
+   Leave Tags unset for a personal device and retain device approval when enabled.
    Otherwise, ask your network administrator for that file.
 4. Choose or review the file, then explicitly select **Connect this Mac**.
    Device approval may still be required. Refresh after the administrator approves
@@ -75,4 +77,4 @@ when Tailscale is disconnected. Native UI rendering covers an empty installation
 with no configured Wallet. Tests never enroll a real device or change a live
 Tailscale/Serve/Funnel configuration. macOS uses its installed Tailscale node and
 OS routing; the existing iOS embedded route and its no-direct-fallback guard are
-unchanged. Wallet/core remains pinned to public core0.3.0 / `054b372`.
+unchanged. Wallet/Core remains pinned to public Core0.4.0 / `0c889e7`; this UI change does not change that dependency.
