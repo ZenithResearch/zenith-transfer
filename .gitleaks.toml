@@ -12,3 +12,10 @@ regexes = [
   '''^be370f64a9f4a080b5370b278355220f46f32ff32c04bf5710a8006d03cfec6c$''',
   '''^f870bfb61d805b0057ee9f68a68ecd386f6f5b7b9ed9e561fc3efc038e1e00ba$''',
 ]
+
+[[allowlists]]
+description = "Exact synthetic API-token input in offline key-generation tests; never issued by Tailscale"
+condition = "AND"
+paths = ['''^Tests/ZenithKitTests/TailscaleKeyCreationTests\.swift$''']
+regexTarget = "secret"
+regexes = ['''^tskey-api-synthetic-0123456789abcdef0123456789abcdef$''']
