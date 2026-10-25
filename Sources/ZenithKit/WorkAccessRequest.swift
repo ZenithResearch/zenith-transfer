@@ -88,6 +88,7 @@ public struct WorkAccessRequestConsent: Sendable {
   public let checkingStatus: Bool
   public let approvalExpires: Date
   public let preference: WorkAccessPreference?
+  public let membershipRequirement: WorkMembershipRequirement
   let native: NativeAccessRequestPreview
   let lifecycle: UInt64
 }
@@ -119,6 +120,7 @@ public extension DevgraphReadClient {
 
   func prepareAccessRequest(store: WorkAccessRequestStore, resubmitOriginal: Bool = false, preference: WorkAccessPreference? = nil) async throws -> WorkAccessRequestConsent {
     let ticket = repository.lifecycleTicket()
+    let requirement = try await membershipRequirement()
     let identity = try JSONSerialization.jsonObject(with: await repository.graphAccessIdentityV2()) as? [String:String]
     guard let owner = identity?["subject_public_key"], let device = identity?["installation_id"] else { throw WalletFailure.core("invalid_response") }
     let old = try store.existing(receiver:configuration.origin,subject:owner,installation:device)
@@ -141,12 +143,13 @@ public extension DevgraphReadClient {
     // must not strand the member with a stale, unsubmitted catalog preference.
     let saved = try store.begin(receiver:configuration.origin,subject:owner,installation:device,preference:record.preference,requestID:record.requestID)
     guard saved == record else { throw WalletFailure.core("recover_original_request_first") }
-    return WorkAccessRequestConsent(requestID:record.requestID,receiver:prepared.summary.receiver,issuer:prepared.summary.issuer,checkingStatus:old != nil && !resubmitOriginal,approvalExpires:Date(timeIntervalSince1970:Double(prepared.summary.expires_at)),preference:record.preference,native:prepared,lifecycle:ticket)
+    return WorkAccessRequestConsent(requestID:record.requestID,receiver:prepared.summary.receiver,issuer:prepared.summary.issuer,checkingStatus:old != nil && !resubmitOriginal,approvalExpires:Date(timeIntervalSince1970:Double(prepared.summary.expires_at)),preference:record.preference,membershipRequirement:requirement,native:prepared,lifecycle:ticket)
   }
   func submitAccessRequest(_ consent: WorkAccessRequestConsent) async throws -> WorkAccessRequestResult {
     try repository.checkLifecycle(consent.lifecycle)
     guard consent.receiver == configuration.origin, consent.issuer == configuration.issuer else { throw WalletFailure.core("invalid_response") }
-    let approved = try await repository.approveGraphAccessRequestV2(consent.native, now:UInt64(Date().timeIntervalSince1970),ticket:consent.lifecycle)
+    let approved = try consent.membershipRequirement.approvalBody(
+      await repository.approveGraphAccessRequestV2(consent.native, now:UInt64(Date().timeIntervalSince1970),ticket:consent.lifecycle))
     var request=URLRequest(url:URL(string:configuration.origin + "/devgraph/access-requests/v2/actions")!)
     request.httpMethod="POST";request.httpBody=approved;request.setValue("application/json",forHTTPHeaderField:"Content-Type")
     // Never automatically repeat a submit after an uncertain response. The

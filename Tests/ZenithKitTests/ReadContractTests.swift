@@ -66,6 +66,8 @@ private final class ReadBackend {
   var accessRequestID: String?
   var wrongResultVersion = false
   var reusable = false
+  var membershipRequirement: String?
+  var membershipProofs: [[String: Any]] = []
   var rootIssueCount = 0
   var submittedRootBodies: [Data] = []
   var loseRootResponse = false
@@ -83,14 +85,16 @@ private final class ReadBackend {
   }
   func respond(_ request: URLRequest) throws -> Data {
     if request.url?.path == "/monitor/wallet-access/v1" {
-      return try json(
-        reusable
-          ? [
-            "holder_grants": [
-              "schema": "secs.holder-grant.v1", "service": "service:fixture",
-              "endpoint": "/monitor/wallet-access/v1/grants",
-            ]
-          ] : [:])
+      statusCode = 200
+      var value: [String: Any] = [:]
+      if reusable {
+        value["holder_grants"] = [
+          "schema": "secs.holder-grant.v1", "service": "service:fixture",
+          "endpoint": "/monitor/wallet-access/v1/grants",
+        ]
+      }
+      if let membershipRequirement { value["membership_requirement"] = membershipRequirement }
+      return try json(value)
     }
     var body = request.httpBody ?? Data()
     if let stream = request.httpBodyStream {
@@ -105,6 +109,9 @@ private final class ReadBackend {
       }
     }
     let input = try object(body)
+    if ["/devgraph/access-requests/v2/actions", "/devgraph/native-read/v2/enrollments", "/monitor/wallet-access/v1/grants"].contains(request.url!.path) {
+      membershipProofs.append(try XCTUnwrap(input["proof"] as? [String: Any]))
+    }
     switch request.url!.path {
     case "/devgraph/access-requests/v2/challenges":
       statusCode = 200
@@ -480,6 +487,48 @@ final class ReadContractTests: XCTestCase {
     let restored = try await client.manifest()
     XCTAssertEqual(restored.subject_public_key, identity["subject_public_key"] as? String)
   }
+  func testOptionalMembershipIsNotSharedButRemainsInWalletAcrossAllConsentPaths() async throws {
+    for requirement in ["optional", "required", nil] as [String?] {
+      let backend = try ReadBackend(.pathV4)
+      backend.membershipRequirement = requirement
+      backend.reusable = true
+      ReadProtocolStub.use(backend)
+      defer { ReadProtocolStub.use(nil) }
+      let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let repository = try await makeMember(directory: directory, issuer: backend.issuer)
+      let session = URLSessionConfiguration.ephemeral
+      session.protocolClasses = [ReadProtocolStub.self]
+      let client = try DevgraphReadClient(repository: repository, configuration: backend.config,
+        transport: PrivateTransport(configuration: session))
+      let store = try WorkAccessRequestStore(directory: directory.appendingPathComponent("requests"))
+      let consent = try await client.prepareAccessRequest(store: store)
+      XCTAssertEqual(consent.membershipRequirement.rawValue, requirement ?? "unspecified")
+      _ = try await client.submitAccessRequest(consent)
+      let proposal = try await client.prepare()
+      XCTAssertEqual(proposal.membershipRequirement, consent.membershipRequirement)
+      try await client.connect(proposal)
+      // Read calls still carry a real signed holder proof after consent omitted membership.
+      _ = try await client.page(kind: "Todo")
+      _ = try await client.requestReusableGrant(client.prepare())
+      XCTAssertEqual(backend.membershipProofs.count, 3)
+      for proof in backend.membershipProofs {
+        XCTAssertEqual(proof.isEmpty, requirement == "optional")
+      }
+      let state = try await repository.state()
+      XCTAssertTrue(state.membershipActive)
+    }
+  }
+
+  func testOptionalMembershipFilterCannotStripNormalReadProofsOrOtherEnvelopeShapes() throws {
+    let proof: [String: Any] = ["schema": "signed-holder-proof", "signature": "retained"]
+    let call = try json(["credential": [:], "call": [:], "proof": proof])
+    XCTAssertThrowsError(try WorkMembershipRequirement.optional.approvalBody(call))
+    for mode in [WorkMembershipRequirement.required, .unspecified] {
+      XCTAssertEqual(try mode.approvalBody(call), call)
+    }
+  }
+
   func testModernAndLegacyEnrollmentPersistenceAndSignedReadsThroughNativeCore() async throws {
     for version in [WorkReadProtocol.nativeV2, .monitorV3, .pathV4] {
       let backend = try ReadBackend(version)

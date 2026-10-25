@@ -96,6 +96,7 @@ public struct ReadAccessProposal: Sendable {
   public let receiver: String
   public let expires: Date
   public let grants: [WorkReadGrant]
+  public var membershipRequirement: WorkMembershipRequirement = .unspecified
   let challenge: Data
   let owner: String
   let installation: String
@@ -212,19 +213,23 @@ public final class DevgraphReadClient: @unchecked Sendable {
     return request
   }
   public func prepare() async throws -> ReadAccessProposal {
+    let requirement = try await membershipRequirement()
     let identity = try await repository.graphAccessIdentityV2()
     let response = try await response(
       request(path: "/devgraph/native-read/v2/challenges", body: identity), maximum: 16_384)
-    return try decodeReadProposal(
+    var proposal = try decodeReadProposal(
       response, identity: identity, configuration: configuration, now: now)
+    proposal.membershipRequirement = requirement
+    return proposal
   }
   public func connect(_ proposal: ReadAccessProposal) async throws {
     guard proposal.receiver == configuration.origin, proposal.issuer == configuration.issuer,
       now < proposal.challengeExpiry
     else { throw WalletFailure.core("access_expired") }
     let ticket = repository.lifecycleTicket()
-    let approved = try await repository.approveGraphReadCredentialV2(
-      proposal.challenge, pin: configuration.authority, now: now)
+    let approved = try proposal.membershipRequirement.approvalBody(
+      await repository.approveGraphReadCredentialV2(
+        proposal.challenge, pin: configuration.authority, now: now))
     try repository.checkLifecycle(ticket)
     let response = try await response(
       request(path: "/devgraph/native-read/v2/enrollments", body: approved), maximum: 65_536)
@@ -553,8 +558,9 @@ extension DevgraphReadClient {
       proposal.issuer == configuration.issuer, now < proposal.challengeExpiry
     else { throw WalletFailure.core("holder_grants_unavailable") }
     let ticket = repository.lifecycleTicket()
-    let approval = try await repository.approveGraphReadCredentialV2(
-      proposal.challenge, pin: configuration.authority, now: now)
+    let approval = try proposal.membershipRequirement.approvalBody(
+      await repository.approveGraphReadCredentialV2(
+        proposal.challenge, pin: configuration.authority, now: now))
     try repository.checkLifecycle(ticket)
     // Keep the exact original body in the client before dispatch. A recovery
     // resends these bytes only; it never signs a second issuance request.

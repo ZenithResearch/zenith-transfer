@@ -114,17 +114,17 @@ public struct LocalAdminRPC: Sendable {
     }
   }
   func envelope(operation: String, body: Data, requestID: String) throws -> Data {
-    guard ["inspect","challenge","execute"].contains(operation), body.count <= 65536 else { throw LocalAdminRPCError.changed }
+    guard ["inspect","challenge","execute"].contains(operation), body.count <= 524288 else { throw LocalAdminRPCError.changed }
     // Hierarchical grants nested inside a challenge/proof exceed the setup
     // parser's default depth of eight. Match the native RPC's bounded body
     // budget while retaining duplicate, byte, key and array checks.
-    var strict = OwnerPlanJSON(body, maximumBytes: 65536, maximumDepth: 16); try strict.validate()
+    var strict = OwnerPlanJSON(body, maximumBytes: 524288, maximumDepth: 16); try strict.validate()
     let value = try JSONSerialization.jsonObject(with: body)
     let raw: [String: Any] = ["schema":"secs.local-admin-request.v1", "request_id":requestID,
       "resource_id":resourceID,"instance_id":instanceID,"receiver":receiver,"issuer":issuer,
       "profile_sha256":profileSHA256,"operation":operation,"body":value]
     let encoded = try OwnerReviewCanonicalJSON.encode(raw)
-    guard encoded.count <= 65536 else { throw LocalAdminRPCError.changed }; return encoded
+    guard encoded.count <= 524288 else { throw LocalAdminRPCError.changed }; return encoded
   }
   func response(_ data: Data, requestID: String) throws -> PrivateHTTPResponse {
     var strict = OwnerPlanJSON(data, maximumBytes: 1_048_576, maximumKeys: 6000, maximumArray: 6000, maximumDepth: 24)

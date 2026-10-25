@@ -198,7 +198,7 @@ extension TransferOperatorBridge {
     case "post":
       guard let path = args["path"] as? String,
         ["/devgraph/access-operator/v1/challenges","/devgraph/access-operator/v1/actions"].contains(path),
-        let text = args["body"] as? String, text.utf8.count <= 65_536, transport != nil || localRPC != nil || rpcExchange != nil else { throw WalletFailure.invalidFile }
+        let text = args["body"] as? String, text.utf8.count <= 524_288, transport != nil || localRPC != nil || rpcExchange != nil else { throw WalletFailure.invalidFile }
       let body = Data(text.utf8), input = try object(body)
       let actionCall = path.hasSuffix("/actions")
       if actionCall {

@@ -30,8 +30,10 @@ public enum WalletFailure: Error, Equatable, LocalizedError {
         return "This is a data file. Choose your recovery file to restore your wallet."
       case "data_file_invalid":
         return "Could not open this data file. Check its password and try again."
-      case "access_expired", "access_denied", "membership_required", "invalid_read_authority":
-        return "Work access needs attention. Open Membership or reconnect Work access in Wallet."
+      case "access_expired", "access_denied", "invalid_read_authority":
+        return "This Wallet does not currently have usable access to this graph. Check your access request or ask the server operator."
+      case "membership_required":
+        return "This server requires a membership proof it accepts. Review its membership requirements before reconnecting."
       case "service_setup_required": return "This build needs an approved service configuration."
       case "issuer_setup_required": return "The access provider has changed. An updated connection configuration is needed."
       case "invalid_response", "invalid_credential", "invalid_read_challenge":
