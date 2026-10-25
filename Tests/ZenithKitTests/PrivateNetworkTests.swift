@@ -46,7 +46,8 @@ private func interceptedConfiguration() -> URLSessionConfiguration {
 /// Gates deliberately ignore cancellation to exercise late driver completions.
 private actor FakePrivateNetworkDriver: PrivateNetworkDriver {
   private var current: PrivateNetworkStatus
-  private let storedState: Bool
+  private var storedState: Bool
+  private var failStoredState = false
   private(set) var starts: [Bool] = []
   private(set) var enrollments = 0
   private(set) var submittedKey: String?
@@ -63,12 +64,16 @@ private actor FakePrivateNetworkDriver: PrivateNetworkDriver {
 
   init(status: PrivateNetworkStatus, storedState: Bool = false) { current = status; self.storedState = storedState }
   func hasStoredState() async throws -> Bool {
+    if failStoredState { throw PrivateNetworkError.interrupted }
     if holdStoredState {
       holdStoredState = false
       return await withCheckedContinuation { pendingStoredState = $0 }
     }
     return storedState
   }
+  func setStoredStateFailure(_ fail: Bool) { failStoredState = fail }
+  func transition(_ status: PrivateNetworkStatus) { current = status }
+  func markStoredState() { storedState = true }
   func pauseStoredStateProbe() { holdStoredState = true }
   var storedStateIsPending: Bool { pendingStoredState != nil }
   func releaseStoredStateProbe() {
@@ -277,6 +282,144 @@ final class PrivateNetworkTests: XCTestCase {
     XCTAssertEqual(starts, [false])
     XCTAssertEqual(enrollments, 0)
     session.disconnect()
+  }
+
+  @MainActor
+  func testTemporaryInterruptionKeepsPollingAndRestoresWithoutNewEnrollment() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    let session = PrivateNetworkSession(driver: driver)
+    await session.restoreSavedConnection()
+    await eventually { session.phase == .connected }
+    let generation = session.generation
+    await driver.transition(try networkStatus("Starting"))
+    await eventually(attempts: 900) { session.phase == .connecting }
+    XCTAssertGreaterThan(session.generation, generation)
+    await driver.transition(try networkStatus("Running"))
+    await eventually { session.phase == .connected }
+    let starts = await driver.starts
+    let enrollments = await driver.enrollments
+    XCTAssertEqual(starts, [false])
+    XCTAssertEqual(enrollments, 0)
+    XCTAssertNil(session.message)
+    session.disconnect()
+  }
+
+  @MainActor
+  func testApprovalPreservesSavedDeviceAndContinuesToConnected() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("NeedsMachineAuth"), storedState: true)
+    let session = PrivateNetworkSession(driver: driver)
+    try session.enroll(authKey: "tskey-auth-0123456789ABCDEF-0123456789abcdef0123456789abcdef")
+    await eventually { session.phase == .awaitingApproval && session.hasSavedConnection }
+    XCTAssertNil(session.authURL)
+    await driver.transition(try networkStatus("Running"))
+    await eventually { session.phase == .connected }
+    let enrollments = await driver.enrollments
+    XCTAssertEqual(enrollments, 1)
+    session.disconnect()
+  }
+
+  @MainActor
+  func testProtectedStateFailureHasRecoverableProbeWithoutFreshEnrollment() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    await driver.setStoredStateFailure(true)
+    let session = PrivateNetworkSession(driver: driver)
+    await session.restoreSavedConnection()
+    XCTAssertTrue(session.savedConnectionNeedsRetry)
+    XCTAssertFalse(session.hasSavedConnection)
+    await driver.setStoredStateFailure(false)
+    await session.retrySavedConnection()
+    await eventually { session.phase == .connected }
+    XCTAssertFalse(session.savedConnectionNeedsRetry)
+    let starts = await driver.starts
+    let enrollments = await driver.enrollments
+    XCTAssertEqual(starts, [false])
+    XCTAssertEqual(enrollments, 0)
+    session.disconnect()
+  }
+
+  @MainActor
+  func testDelayedApprovalGetsStartupGraceWithoutReplayingConsumedKey() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("NeedsMachineAuth"), storedState: true)
+    let session = PrivateNetworkSession(driver: driver)
+    var clock = Date()
+    session.now = { clock }
+    try session.enroll(authKey: "tskey-auth-0123456789ABCDEF-0123456789abcdef0123456789abcdef")
+    await eventually { session.phase == .awaitingApproval && session.hasSavedConnection }
+    clock += 600
+    let calls = await driver.statusCalls
+    await eventually { await driver.statusCalls > calls }
+    await driver.transition(try networkStatus("Starting"))
+    await eventually { session.phase == .connecting }
+    XCTAssertNil(session.message)
+    await driver.transition(try networkStatus("Running"))
+    await eventually { session.phase == .connected }
+    let enrollments = await driver.enrollments
+    XCTAssertEqual(enrollments, 1)
+    session.disconnect()
+  }
+
+  @MainActor
+  func testInteractiveIntentIsConsumedAfterConnection() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    let session = PrivateNetworkSession(driver: driver)
+    session.connect()
+    await eventually { session.phase == .connected }
+    await driver.transition(try networkStatus("NeedsLogin", authURL: "https://login.tailscale.com/a/renew"))
+    await eventually(attempts: 900) { session.phase == .signInRequired }
+    XCTAssertNil(session.authURL, "Renewal must wait for an explicit Sign in tap")
+    session.disconnect()
+  }
+
+  @MainActor
+  func testExplicitSavedRetryWorksEvenWhenAutomaticReconnectIsOff() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    let session = PrivateNetworkSession(driver: driver)
+    session.setAutomaticallyReconnect(false)
+    await driver.setStoredStateFailure(true)
+    await session.restoreSavedConnection()
+    XCTAssertTrue(session.savedConnectionNeedsRetry)
+    await driver.setStoredStateFailure(false)
+    await session.retrySavedConnection()
+    await eventually { session.phase == .connected }
+    XCTAssertFalse(session.automaticallyReconnect)
+    session.disconnect()
+  }
+
+  @MainActor
+  func testAlternativeEnrollmentClearsFailedProbeRecoveryAction() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"))
+    let session = PrivateNetworkSession(driver: driver)
+    await driver.setStoredStateFailure(true)
+    await session.restoreSavedConnection()
+    XCTAssertTrue(session.savedConnectionNeedsRetry)
+    await driver.rejectNextEnrollment()
+    try session.enroll(authKey: "tskey-auth-0123456789ABCDEF-0123456789abcdef0123456789abcdef")
+    await eventually { session.phase == .failed }
+    XCTAssertFalse(session.savedConnectionNeedsRetry)
+    session.disconnect()
+  }
+
+  @MainActor
+  func testDisconnectDuringExplicitSavedRetryCannotStartNetwork() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    let session = PrivateNetworkSession(driver: driver)
+    session.setAutomaticallyReconnect(false)
+    await session.restoreSavedConnection()
+    XCTAssertTrue(session.hasSavedConnection)
+    session.disconnect()
+    await driver.setStoredStateFailure(true)
+    await session.restoreSavedConnection()
+    XCTAssertTrue(session.savedConnectionNeedsRetry)
+    await driver.setStoredStateFailure(false)
+    await driver.pauseStoredStateProbe()
+    let retry = Task { await session.retrySavedConnection() }
+    await eventually { await driver.storedStateIsPending }
+    session.disconnect()
+    await driver.releaseStoredStateProbe()
+    await retry.value
+    let starts = await driver.starts
+    XCTAssertTrue(starts.isEmpty)
+    XCTAssertEqual(session.phase, .idle)
   }
 
   func testSavedStateProbeReadsOnlyFileMetadataAndRejectsLinks() throws {
@@ -532,10 +675,10 @@ final class PrivateNetworkTests: XCTestCase {
 
   @MainActor
   private func eventually(
-    file: StaticString = #filePath, line: UInt = #line,
+    file: StaticString = #filePath, line: UInt = #line, attempts: Int = 300,
     _ predicate: @escaping @MainActor () async -> Bool
   ) async {
-    for _ in 0..<300 {
+    for _ in 0..<attempts {
       if await predicate() { return }
       try? await Task.sleep(nanoseconds: 10_000_000)
     }

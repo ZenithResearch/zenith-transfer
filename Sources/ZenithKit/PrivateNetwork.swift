@@ -107,9 +107,11 @@ public final class PrivateNetworkSession: ObservableObject {
   @Published public private(set) var message: String?
   @Published public private(set) var generation = 0
   @Published public private(set) var hasSavedConnection = false
+  @Published public private(set) var savedConnectionNeedsRetry = false
   @Published public private(set) var automaticallyReconnect: Bool
   public static let automaticReconnectKey = "network.tailscale.reconnectAutomatically.v1"
   public static let connectionRequestedKey = "network.tailscale.connectionRequested.v1"
+  internal var now: () -> Date = Date.init
   private let preferences: UserDefaults?
   private var rememberedConnection: Bool?
   private var restorationGeneration: Int?
@@ -138,14 +140,24 @@ public final class PrivateNetworkSession: ObservableObject {
         return
       }
       hasSavedConnection = saved
+      savedConnectionNeedsRetry = false
+      message = nil
       if saved && automaticallyReconnect && rememberedConnection != false {
         begin(interactive: false)
       }
     } catch {
       guard ticket == generation, !Task.isCancelled else { return }
       restorationGeneration = nil
-      message = "Couldn’t open the saved Tailscale connection. Unlock this device and choose Reconnect."
+      savedConnectionNeedsRetry = true
+      message = "Couldn’t read the saved Tailscale connection. Unlock this device, then retry the saved connection."
     }
+  }
+  public func retrySavedConnection() async {
+    guard phase == .idle, savedConnectionNeedsRetry else { return }
+    let ticket = generation
+    await restoreSavedConnection()
+    if ticket == generation, !Task.isCancelled, !savedConnectionNeedsRetry,
+      phase == .idle, hasSavedConnection { begin(interactive: false) }
   }
   public func reconnect() { begin(interactive: false) }
   public func setAutomaticallyReconnect(_ enabled: Bool) {
@@ -219,7 +231,8 @@ public final class PrivateNetworkSession: ObservableObject {
     previous?.cancel()
     invalidate()
     enrollmentInput = enrollment
-    let ticket = generation
+    savedConnectionNeedsRetry = false
+    var ticket = generation
     phase = .connecting
     message = nil
     resumeRequested = false
@@ -229,17 +242,34 @@ public final class PrivateNetworkSession: ObservableObject {
       do {
         try Task.checkCancellation()
         try await self?.startDriver(interactive: interactive, enrollment: enrollment)
-        let started = Date()
+        var started = self?.now() ?? Date()
+        var mayPresentSignIn = interactive && enrollment == nil
         while !Task.isCancelled {
           let status = try await driver.status()
           guard let self, ticket == self.generation, !Task.isCancelled else { break }
           if self.phase == .connected && status.phase != .connected {
             self.transports.forEach { $0.value?.cancel() }
             self.generation += 1
-            self.phase = status.phase
-            self.authURL = nil
-            self.message = "Tailscale disconnected. Reconnect to continue."
-            break
+            ticket = self.generation
+            started = self.now()
+          }
+          if status.phase == .connected {
+            mayPresentSignIn = false
+            started = self.now()
+            self.message = nil
+          } else if status.phase == .awaitingApproval {
+            started = self.now()
+            self.message = nil
+          } else if status.phase == .signInRequired && enrollment == nil {
+            self.message = "This device needs to sign in again. Your Wallet and saved servers are unchanged."
+          } else { self.message = nil }
+          if status.phase == .awaitingApproval && !self.hasSavedConnection {
+            // The key may already be consumed. Probe metadata rather than asking
+            // for another key; retain approval polling until cancellation/background.
+            let saved = (try? await driver.hasStoredState()) ?? false
+            guard ticket == self.generation, !Task.isCancelled else { break }
+            self.hasSavedConnection = saved
+            if saved { self.rememberConnection(true) }
           }
           // Key enrollment never presents browser authentication, including
           // when an invalid key makes the control plane return NeedsLogin.
@@ -249,9 +279,10 @@ public final class PrivateNetworkSession: ObservableObject {
             if !self.hasSavedConnection { self.hasSavedConnection = true }
             if self.rememberedConnection != true { self.rememberConnection(true) }
           }
-          self.authURL = interactive && enrollment == nil ? status.authURL : nil
+          self.authURL = mayPresentSignIn ? status.authURL : nil
           let timeout: TimeInterval = enrollment == nil || status.phase == .awaitingApproval ? 300 : 45
-          if status.phase != .connected && Date().timeIntervalSince(started) > timeout {
+          if status.phase != .connected && status.phase != .awaitingApproval
+            && self.now().timeIntervalSince(started) > timeout {
             throw PrivateNetworkError.disconnected
           }
           try await Task.sleep(nanoseconds: status.phase == .connected ? 5_000_000_000 : 1_000_000_000)
