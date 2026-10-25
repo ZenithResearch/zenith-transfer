@@ -20,6 +20,7 @@ struct TransferNetworkSettingsView: View {
   @State private var problem: String?
   @State private var review: NetworkSetupReview?
   @State private var creatingKey = false
+  @State private var generatingKey = false
   @State private var createdFile: URL?
   @State private var operation: Task<Void, Never>?
 
@@ -39,6 +40,7 @@ struct TransferNetworkSettingsView: View {
     .task { if automaticallyDiscover { await refresh() } }
     .onDisappear { operation?.cancel() }
     .sheet(item: $review) { item in reviewSheet(item) }
+    .sheet(isPresented: $generatingKey) { TransferTailscaleKeyGeneratorView() }
     .sheet(isPresented: $creatingKey, onDismiss: {
       guard let url = createdFile else { return }; createdFile = nil
       do { try reloadFiles(); offer(try ConnectionFileReview.read(url, as: .tailscale)) }
@@ -63,9 +65,16 @@ struct TransferNetworkSettingsView: View {
           HStack { Label(file.file.lastPathComponent, systemImage: "doc.badge.lock").lineLimit(2); Spacer(); Button("Review file") { offer(file) } }
         }
         HStack {
-          Button("Create auth-key file…") { creatingKey = true }.buttonStyle(TransferPrimaryButtonStyle())
-          Button("Choose auth-key file…") { choose(.tailscale) }
+          Button("Generate auth key…") { generatingKey = true }.buttonStyle(TransferPrimaryButtonStyle())
+          Link("Generate in Tailscale console", destination: URL(string: "https://login.tailscale.com/admin/settings/keys")!)
         }.disabled(enrolling)
+        Text("Generate a new key for Zenith on another device. A file is optional.").font(.footnote).foregroundStyle(.secondary)
+        DisclosureGroup("Use an existing auth key") {
+          HStack {
+            Button("Choose auth-key file…") { choose(.tailscale) }
+            Button("Save an existing key to a file…") { creatingKey = true }
+          }.disabled(enrolling).padding(.top, 6)
+        }
         DisclosureGroup("How to get a Tailscale auth-key file") {
           VStack(alignment: .leading, spacing: 8) {
             Text("If someone else manages the network, ask them for a one-time, non-ephemeral Tailscale auth-key file. It is a small text file containing only the enrollment key.")

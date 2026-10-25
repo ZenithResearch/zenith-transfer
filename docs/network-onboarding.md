@@ -7,7 +7,48 @@ Use **Open connection files folder** to find that folder. **Choose connection
 file** also works with files saved elsewhere. Refresh after copying a file.
 Nothing is connected or replaced merely by finding or choosing a file.
 
-## Tailscale
+## Generate a new Tailscale auth key
+
+Choose **Settings → Network → Generate auth key**. This is a native key generator,
+not an auth-key file creator. Supply a Tailscale **API access token** (`tskey-api-`)
+from the Tailnet administrator, a description, and an enrollment window. The
+Tailnet field defaults to `-`, meaning the default network associated with that
+API token; set an explicit name or ID to select another authorized Tailnet.
+
+A connected Mac's node identity and an enrollment key (`tskey-auth-`) cannot mint
+new keys. An API access token may carry broad Tailscale administration authority.
+The current generator uses it only in memory for the requested operation; it is
+not saved in app settings, the Keychain, a file, or Wallet backups. The Keys page
+link provides bootstrap API-token creation or direct browser-based generation.
+Scoped OAuth authorization is a possible later alternative, not an implicit part
+of this flow.
+
+Review the destination, description and lifetime, then explicitly choose
+**Generate one-time key**. The fixed request creates a non-reusable,
+non-ephemeral, untagged key without bypassing device approval. It calls only
+`POST https://api.tailscale.com/api/v2/tailnet/{tailnet}/keys`, using the existing
+TLS-validating, redirect-blocking, cookie-free bounded HTTP transport. No device
+is automatically enrolled, and no server publication or Wallet grant is changed.
+
+The returned key is transient and masked initially. Choose **Copy key**, then
+paste it directly into Zenith on the receiving device. No transfer file is
+required. Leaving the foreground or closing clears it; Tailscale will not return
+that secret again. Keep the clipboard private. If the key was not copied, revoke
+it in the Tailscale console before generating a replacement.
+
+No POST is automatically retried. Lost responses, redirects, server errors,
+invalid/oversized/duplicate JSON, unexpected capabilities or a widened returned
+key produce an uncertain result and disable another submission in that sheet.
+Check the Keys page before closing/reopening to create another. This preview does
+not persist an issuance journal across app restarts or automatically reconcile
+an uncertain key with the provider. Source tests use synthetic API responses;
+actual key generation requires the administrator's explicit operation.
+
+References: [Tailscale API](https://tailscale.com/docs/reference/tailscale-api),
+[official key request/response model](https://github.com/tailscale/tailscale-client-go-v2/blob/main/keys.go),
+and [official client authentication/default Tailnet](https://github.com/tailscale/tailscale-client-go-v2/blob/main/client.go).
+
+## Tailscale: use an existing key
 
 1. Install the official Tailscale app using **Install Tailscale**, then open it.
    Auth-key enrollment is the preferred new-device path; browser sign-in
