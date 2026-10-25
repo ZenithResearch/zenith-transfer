@@ -21,8 +21,25 @@ public struct GeneratedTailscaleAuthKey: Sendable, CustomStringConvertible, Cust
 }
 
 /// Only creates one-off, persistent-node auth keys on the official control plane.
-/// No tags, preapproval, token persistence, OAuth-client creation or host changes.
+/// This HTTP client has no token persistence, tags, preapproval, OAuth-client
+/// creation or host changes. Optional saved-token custody is a separate store.
 public final class TailscaleKeyCreator: @unchecked Sendable {
+  public static func validatedTailnet(_ value: String) throws -> String {
+    let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.@")
+    guard (1...253).contains(value.utf8.count), !value.contains(".."), value != ".",
+      value.unicodeScalars.allSatisfy({ allowed.contains($0) })
+    else { throw TailscaleKeyCreationFailure.invalidInput }
+    return value
+  }
+  public static func validatedAPIToken(_ value: String) throws -> String {
+    let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+    guard value.hasPrefix("tskey-api-"), (32...512).contains(value.utf8.count),
+      value.unicodeScalars.allSatisfy({ allowed.contains($0) })
+    else { throw TailscaleKeyCreationFailure.invalidInput }
+    return value
+  }
   typealias Exchange = @Sendable (URLRequest) async throws -> PrivateHTTPResponse
   private let exchange: Exchange
   private let transport: PrivateTransport?
@@ -36,17 +53,12 @@ public final class TailscaleKeyCreator: @unchecked Sendable {
   public func generate(tailnet: String, description: String, expiryDays: Int,
     apiToken: String, now: Date = Date()) async throws -> GeneratedTailscaleAuthKey {
     try Task.checkCancellation()
-    let tailnet = tailnet.trimmingCharacters(in: .whitespacesAndNewlines)
+    let tailnet = try Self.validatedTailnet(tailnet)
     let description = description.trimmingCharacters(in: .whitespacesAndNewlines)
-    let token = apiToken.trimmingCharacters(in: .whitespacesAndNewlines)
-    let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.@")
-    let tokenCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
-    guard (1...253).contains(tailnet.utf8.count), !tailnet.contains(".."),
-      tailnet.unicodeScalars.allSatisfy({ allowed.contains($0) }), tailnet != ".",
-      (1...100).contains(description.utf8.count),
+    let token = try Self.validatedAPIToken(apiToken)
+    guard (1...100).contains(description.utf8.count),
       !description.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
-      (1...90).contains(expiryDays), token.hasPrefix("tskey-api-"),
-      (32...512).contains(token.utf8.count), token.unicodeScalars.allSatisfy({ tokenCharacters.contains($0) })
+      (1...90).contains(expiryDays)
     else { throw TailscaleKeyCreationFailure.invalidInput }
     let seconds = expiryDays * 86_400
     let url = URL(string: "https://api.tailscale.com/api/v2/tailnet")!

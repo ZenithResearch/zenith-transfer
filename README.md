@@ -39,9 +39,9 @@ The public dependency preserves the native ABI, encrypted recovery format, and
 graph/operator/owner consent used by the earlier private pin. Source provenance
 is recorded in the Wallet repository's `TRANSFER-NATIVE-SOURCE.json`.
 
-The current development app is **0.2.0 build 36**. Its pinned Wallet revision is
-`054b372d686e2f8dba0ad8bbd166adbde9ebab38`, the common public Castalia core
-0.3.0 baseline also used for the native iOS build. Native and browser clients expose
+The current development app is **0.2.0 build 43**. Its pinned Wallet revision is
+`0c889e7a993f48d7b34321359d1949cf8ddc4eb8`, the common public Castalia core
+0.4.0 baseline also used for the native iOS build. Native and browser clients expose
 different interfaces over the shared core; aligning the source does not enable
 new credential schemas or grant permissions.
 
@@ -59,6 +59,12 @@ external signer connections and Keychain secret references are follow-up adapter
 Do not enter passwords, API tokens, auth keys or private keys in account fields.
 Tailscale host status uses the existing installed host CLI read-only; it is
 separate from saved Tailscale account identity and is never an access grant.
+
+**Settings → Network → API access tokens** separately saves named Tailscale API
+tokens in this Mac’s non-synchronizing login Keychain. Choose a saved token in
+**Generate auth key**, then review and explicitly generate a one-time device
+enrollment key. Saved tokens are application network secrets, excluded from Wallet
+and connection-file exports. See [network setup](docs/network-onboarding.md).
 
 DevGraph credentials remain in **Resources & requests**, with presets/custom
 operations and Arena/path scopes. The server verifies Wallet-signed decisions;

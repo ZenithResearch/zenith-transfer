@@ -14,14 +14,45 @@ not an auth-key file creator. Supply a Tailscale **API access token** (`tskey-ap
 from the Tailnet administrator, a description, and an enrollment window. The
 Tailnet field defaults to `-`, meaning the default network associated with that
 API token; set an explicit name or ID to select another authorized Tailnet.
+Visible labels distinguish the API token’s local label, the Tailnet name/ID, and
+the description of the new enrollment key. A label such as “Transfer” is not a
+Tailnet identifier.
 
 A connected Mac's node identity and an enrollment key (`tskey-auth-`) cannot mint
 new keys. An API access token may carry broad Tailscale administration authority.
-The current generator uses it only in memory for the requested operation; it is
-not saved in app settings, the Keychain, a file, or Wallet backups. The Keys page
+You can paste a token for one operation, or save it explicitly under
+**Settings → Network → API access tokens**. The Keys page
 link provides bootstrap API-token creation or direct browser-based generation.
 Scoped OAuth authorization is a possible later alternative, not an implicit part
 of this flow.
+
+### Saved API tokens on this Mac
+
+Add a label, the authorized Tailnet name/ID (or `-`), and an API access token,
+then choose **Save to Keychain**. Multiple records are supported. **Replace**
+requires entering a new token; saved secrets are not shown or copied back into
+the form. **Remove** forgets just the selected local record after confirmation;
+it does not revoke the token at Tailscale or disconnect any enrolled device.
+Use the linked Tailscale Keys page for provider-side revocation.
+
+These are application network secrets, not Wallet identities or grants. Both
+the token and its display metadata are held in the macOS login Keychain, scoped
+to Transfer’s service and a unique record ID, with synchronization disabled and
+the default application access control. They are not placed in UserDefaults,
+JSON files, ConnectionFiles, Wallet recovery exports or Wallet database backups.
+This preview uses the login Keychain because its build is ad-hoc signed; it does
+not claim a provisioned private data-protection access group or exclusion from
+every OS-level machine backup. macOS may request authorization after a build
+update. There is no file fallback if access fails.
+
+The generator lists only public display attributes. A saved token is retrieved
+only after **Generate one-time key** is confirmed, and used only with the fixed
+official API destination below. A replaced/removed record invalidates an older
+selection. Selecting or saving a token neither contacts Tailscale nor validates
+its server-side permissions or expiry. Pasted and retrieved in-memory values
+are cleared on leaving the screen/foreground; explicitly saved Keychain records
+remain until removed. If a Keychain prompt interrupts generation before submission,
+review again after authorizing access; no POST has been sent.
 
 Review the destination, description and lifetime, then explicitly choose
 **Generate one-time key**. The fixed request creates a non-reusable,

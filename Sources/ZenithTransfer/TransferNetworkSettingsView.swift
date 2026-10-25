@@ -21,6 +21,7 @@ struct TransferNetworkSettingsView: View {
   @State private var review: NetworkSetupReview?
   @State private var creatingKey = false
   @State private var generatingKey = false
+  @State private var managingAPITokens = false
   @State private var createdFile: URL?
   @State private var operation: Task<Void, Never>?
 
@@ -41,6 +42,7 @@ struct TransferNetworkSettingsView: View {
     .onDisappear { operation?.cancel() }
     .sheet(item: $review) { item in reviewSheet(item) }
     .sheet(isPresented: $generatingKey) { TransferTailscaleKeyGeneratorView() }
+    .sheet(isPresented: $managingAPITokens) { TransferTailscaleAPITokensView() }
     .sheet(isPresented: $creatingKey, onDismiss: {
       guard let url = createdFile else { return }; createdFile = nil
       do { try reloadFiles(); offer(try ConnectionFileReview.read(url, as: .tailscale)) }
@@ -69,6 +71,8 @@ struct TransferNetworkSettingsView: View {
           Link("Generate in Tailscale console", destination: URL(string: "https://login.tailscale.com/admin/settings/keys")!)
         }.disabled(enrolling)
         Text("Generate a new key for Zenith on another device. A file is optional.").font(.footnote).foregroundStyle(.secondary)
+        Button("API access tokens…") { managingAPITokens = true }
+        Text("Save and manage API tokens in this Mac’s Keychain for key generation. Separate from enrollment keys and Wallet backups.").font(.footnote).foregroundStyle(.secondary)
         DisclosureGroup("Use an existing auth key") {
           HStack {
             Button("Choose auth-key file…") { choose(.tailscale) }
