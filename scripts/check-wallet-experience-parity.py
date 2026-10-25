@@ -12,6 +12,8 @@ paths = [
     'Sources/ZenithKit/HolderGrants.swift',
     'Sources/ZenithKit/WalletGrantsView.swift',
     'Sources/ZenithKit/DevgraphReadClient.swift',
+    'Sources/ZenithKit/WorkAccessRequest.swift',
+    'Sources/ZenithKit/WorkMembershipRequirement.swift',
     'Tests/ZenithKitTests/ReadContractTests.swift',
     'Sources/CastaliaCustody/LifecycleGate.swift',
     'Sources/CastaliaCustody/NativeSignerEngine.swift',
