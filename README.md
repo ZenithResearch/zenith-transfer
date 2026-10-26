@@ -102,3 +102,10 @@ Wallet home, recovery/password controls and configurable inactivity lock.
 
 Portable identities use the shared [Castaway v2 contract](docs/portable-wallet-identities.md),
 with explicit review before copying original application records into Wallet.
+
+Build storage: successful app/Core packaging automatically keeps one previous
+build and any older backup still in use. `python3 scripts/prune-build-backups.py`
+previews cleanup; add `--apply` to remove eligible backups. If open-file checks
+fail, backups are kept. Current/numbered app releases and source/user data are
+never candidates. Reuse the same build directories rather than creating a new
+dated cache for every run.

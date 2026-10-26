@@ -45,4 +45,5 @@ if [ -d "$final_app" ]; then
   mv "$final_app" "$previous_dir/Zenith Transfer.app"
 fi
 mv "$app_dir" "$final_app"
+python3 "$project_dir/scripts/prune-build-backups.py" --apply
 printf 'Built %s\n' "$final_app"

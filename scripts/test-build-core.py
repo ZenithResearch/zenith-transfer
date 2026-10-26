@@ -19,11 +19,12 @@ class PublicCoreBuildTests(unittest.TestCase):
         for folder in [self.app / "scripts", self.wallet, self.bin]:
             folder.mkdir(parents=True)
         scripts = Path(__file__).resolve().parent
-        for name in ["build-core.sh", "core-manifest.py"]:
+        for name in ["build-core.sh", "core-manifest.py", "prune-build-backups.py"]:
             shutil.copy2(scripts / name, self.app / "scripts" / name)
         (self.wallet / "Cargo.toml").write_text("[workspace]\n")
         (self.wallet / "Cargo.lock").write_text("version = 4\n")
         subprocess.run(["git", "init", "-q", str(self.wallet)], check=True)
+        self.git("remote", "add", "origin", "https://github.com/ZenithResearch/castalia-wallet.git")
         self.git("add", ".")
         self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture")
         revision = self.git("rev-parse", "HEAD").stdout.strip()
