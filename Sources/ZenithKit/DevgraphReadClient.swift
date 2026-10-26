@@ -12,12 +12,14 @@ public struct WorkAccessConfiguration: Codable, Sendable, Hashable {
   public let receiver: URL
   public let issuer: String
   public let authority: ReadAuthorityPin
+  public let service_access_point: ServiceAccessPoint?
   public let network: WorkNetwork?
   public let tls_certificate_sha256: String?
   public init(
     name: String, receiver: URL, issuer: String, keyID: String,
-    publicKey: String, network: WorkNetwork? = nil, tlsCertificateSHA256: String? = nil
+    publicKey: String, network: WorkNetwork? = nil, tlsCertificateSHA256: String? = nil, serviceAccessPoint: ServiceAccessPoint? = nil
   ) throws {
+    self.service_access_point = serviceAccessPoint
     self.name = name
     self.receiver = receiver
     self.issuer = issuer
@@ -32,6 +34,7 @@ public struct WorkAccessConfiguration: Codable, Sendable, Hashable {
     try validate()
   }
   public func validate() throws {
+    if let binding = service_access_point { try binding.verify(configuration: self) }
     guard
       (network == .lan || network == .local)
         ? tls_certificate_sha256?.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil
@@ -203,8 +206,8 @@ public final class DevgraphReadClient: @unchecked Sendable {
     }
   }
   private var now: UInt64 { UInt64(Date().timeIntervalSince1970) }
-  private func request(path: String, body: Data? = nil) -> URLRequest {
-    var request = URLRequest(url: URL(string: configuration.origin + path)!)
+  private func request(path: String, body: Data? = nil) throws -> URLRequest {
+    var request = URLRequest(url: try configuration.apiURL(path))
     if let body {
       request.httpMethod = "POST"
       request.httpBody = body
@@ -223,13 +226,13 @@ public final class DevgraphReadClient: @unchecked Sendable {
     return proposal
   }
   public func connect(_ proposal: ReadAccessProposal) async throws {
-    guard proposal.receiver == configuration.origin, proposal.issuer == configuration.issuer,
+    guard proposal.receiver == configuration.authorityOrigin, proposal.issuer == configuration.issuer,
       now < proposal.challengeExpiry
     else { throw WalletFailure.core("access_expired") }
     let ticket = repository.lifecycleTicket()
     let approved = try proposal.membershipRequirement.approvalBody(
       await repository.approveGraphReadCredentialV2(
-        proposal.challenge, pin: configuration.authority, now: now))
+        proposal.challenge, pin: configuration.credentialAuthority, now: now))
     try repository.checkLifecycle(ticket)
     let response = try await response(
       request(path: "/devgraph/native-read/v2/enrollments", body: approved), maximum: 65_536)
@@ -247,7 +250,7 @@ public final class DevgraphReadClient: @unchecked Sendable {
   public func manifest() async throws -> NativeReadManifest {
     if let reusable = try await reusableManifest() { return reusable }
     let access = try object(
-      await repository.graphReadCredentialV2(receiver: configuration.origin, now: now))
+      await repository.graphReadCredentialV2(receiver: configuration.authorityOrigin, now: now))
     guard let credential = access["credential"] as? [String: Any],
       let claims = credential["claims"] as? [String: Any],
       let permissions = claims["permissions"] as? [[String: Any]]
@@ -392,7 +395,7 @@ public final class DevgraphReadClient: @unchecked Sendable {
         call: JSONSerialization.data(withJSONObject: call), now: now)
     } else {
       proof = try await repository.signGraphReadCallV2(
-        receiver: configuration.origin, call: JSONSerialization.data(withJSONObject: call), now: now
+        receiver: configuration.authorityOrigin, call: JSONSerialization.data(withJSONObject: call), now: now
       )
     }
     try repository.checkLifecycle(ticket)
@@ -407,7 +410,7 @@ public final class DevgraphReadClient: @unchecked Sendable {
     {
       try await repository.forgetHolderGrant(service: endpoint.service)
     }
-    try await repository.forgetReadAccess(receiver: configuration.origin)
+    try await repository.forgetReadAccess(receiver: configuration.authorityOrigin)
   }
 }
 private func object(_ data: Data) throws -> [String: Any] {
@@ -469,7 +472,7 @@ func decodeReadProposal(
     ])
   let identityValue = try object(identity)
   guard v["schema"] as? String == "castalia.read-access-challenge.v1",
-    v["receiver"] as? String == configuration.origin,
+    v["receiver"] as? String == configuration.authorityOrigin,
     v["issuer"] as? String == configuration.issuer,
     v["subject_public_key"] as? String == identityValue["subject_public_key"] as? String,
     v["installation_id"] as? String == identityValue["installation_id"] as? String,
@@ -487,7 +490,7 @@ func decodeReadProposal(
     authority["issuer"] as? String == configuration.authority.issuer,
     authority["key_id"] as? String == configuration.authority.key_id,
     authority["public_key"] as? String == configuration.authority.public_key,
-    authority["receiver"] as? String == configuration.origin,
+    authority["receiver"] as? String == configuration.authorityOrigin,
     authority["audience"] as? String == "devgraph",
     let permissions = authority["permissions"] as? [[String: Any]]
   else { throw WalletFailure.core("issuer_setup_required") }
@@ -522,7 +525,7 @@ func decodeReadProposal(
   else { throw WalletFailure.core("access_expired") }
   return ReadAccessProposal(
     readProtocol: readProtocol, requestID: id, issuer: configuration.issuer,
-    receiver: configuration.origin,
+    receiver: configuration.authorityOrigin,
     expires: Date(timeIntervalSince1970: Double(expiry)), grants: grants, challenge: response,
     owner: owner, installation: installation, policy: policy, challengeExpiry: challengeExpiry)
 }
@@ -546,7 +549,8 @@ extension DevgraphReadClient {
     guard let raw = value["holder_grants"] else { return nil }
     let endpoint = try JSONDecoder().decode(
       HolderGrantEndpoint.self, from: JSONSerialization.data(withJSONObject: raw))
-    guard endpoint.schema == "secs.holder-grant.v1", !endpoint.service.isEmpty,
+    guard configuration.serviceID == nil || configuration.serviceID == endpoint.service,
+      endpoint.schema == "secs.holder-grant.v1", !endpoint.service.isEmpty,
       endpoint.service.count <= 256, endpoint.endpoint == "/monitor/wallet-access/v1/grants"
     else { throw WalletFailure.core("invalid_holder_service") }
     return endpoint
@@ -554,13 +558,13 @@ extension DevgraphReadClient {
   /// Retrieves the provider-signed root. It is not stored or used until review.
   public func requestReusableGrant(_ proposal: ReadAccessProposal) async throws -> HolderGrantReview
   {
-    guard let endpoint = try await holderEndpoint(), proposal.receiver == configuration.origin,
+    guard let endpoint = try await holderEndpoint(), proposal.receiver == configuration.authorityOrigin,
       proposal.issuer == configuration.issuer, now < proposal.challengeExpiry
     else { throw WalletFailure.core("holder_grants_unavailable") }
     let ticket = repository.lifecycleTicket()
     let approval = try proposal.membershipRequirement.approvalBody(
       await repository.approveGraphReadCredentialV2(
-        proposal.challenge, pin: configuration.authority, now: now))
+        proposal.challenge, pin: configuration.credentialAuthority, now: now))
     try repository.checkLifecycle(ticket)
     // Keep the exact original body in the client before dispatch. A recovery
     // resends these bytes only; it never signs a second issuance request.

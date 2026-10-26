@@ -17,10 +17,11 @@ public enum WorkServerDiscovery {
       throw WorkServerSetupError.profile
     }
     if network == .tailscale {
-      return try WorkAccessConfiguration(name: configuration.name, receiver: configuration.receiver,
+      let routed = try WorkAccessConfiguration(name: configuration.name, receiver: configuration.receiver,
         issuer: configuration.issuer, keyID: configuration.authority.key_id,
         publicKey: configuration.authority.public_key, network: .tailscale)
+      return try await routed.resolveService(transport: transport!)
     }
-    return configuration
+    return try await configuration.resolveService(transport: transport ?? PrivateTransport())
   }
 }

@@ -66,13 +66,13 @@ extension TransferOperatorBridge {
       else { transport = try PrivateTransport(workServer: resource.configuration) }
       let root = try FileManager.default.url(for: .applicationSupportDirectory,
         in: .userDomainMask, appropriateFor: nil, create: true)
-      journal = try OperatorJournal(directory: journalDirectory ?? root.appendingPathComponent("ZenithTransfer/OperatorActions"), origin: resource.id)
+      journal = try OperatorJournal(directory: journalDirectory ?? root.appendingPathComponent("ZenithTransfer/OperatorActions"), origin: resource.configuration.authorityOrigin)
       _ = try journal?.load()
     } catch { failure = "Could not open this resource securely. Check its saved connection and recovery settings." }
   }
   var bootstrap: String {
     do {
-      let config: [String: Any] = ["origin": resource.id,
+      let config: [String: Any] = ["origin": resource.configuration.authorityOrigin,
         "pending": try journal?.load().flatMap { String(data: $0, encoding: .utf8) } as Any? ?? NSNull()]
       let data = try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys])
       return "globalThis.ZenithOperatorConfiguration=" + String(decoding: data, as: UTF8.self) + ";\n" +
@@ -189,7 +189,7 @@ extension TransferOperatorBridge {
         let details = try object(rawChallenge)["details"] as? [String: Any],
         let action = details["action"] as? [String: Any] else { throw WalletFailure.invalidFile }
       try checkAction(action, against: pending())
-      let prepared = try await repository.prepareOperatorAccess(rawChallenge, pin: resource.configuration.authority, now: UInt64(Date().timeIntervalSince1970))
+      let prepared = try await repository.prepareOperatorAccess(rawChallenge, pin: resource.configuration.credentialAuthority, now: UInt64(Date().timeIntervalSince1970))
       consent = prepared
       let accepted = await withCheckedContinuation { continuation = $0 }
       guard accepted, !closed else { throw WalletFailure.core("approval_denied") }
@@ -218,17 +218,22 @@ extension TransferOperatorBridge {
           try checkAction(action, against: object(prior))
         }
       }
-      var request = URLRequest(url: URL(string: resource.id + path)!)
+      var request = URLRequest(url: try resource.configuration.apiURL(path))
       request.httpMethod = "POST"; request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
       let response: PrivateHTTPResponse
-      if let rpcExchange { response = try await rpcExchange(actionCall ? "execute" : "challenge", body) }
-      else if let localRPC { response = try await localRPC.call(operation: actionCall ? "execute" : "challenge", body: body) }
+      let rpcOperation = (resource.configuration.serviceID == nil ? "" : "service_") + (actionCall ? "execute" : "challenge")
+      let rpcBody: Data
+      if let binding = resource.configuration.service_access_point {
+        rpcBody = try canonical(["service_access_point":try object(JSONEncoder().encode(binding)), "request":input])
+      } else { rpcBody = body }
+      if let rpcExchange { response = try await rpcExchange(rpcOperation, rpcBody) }
+      else if let localRPC { response = try await localRPC.call(operation: rpcOperation, body: rpcBody) }
       else if let transport { response = try await transport.exchange(request) }
       else { throw LocalAdminRPCError.unavailable }
       if !actionCall && response.status == 200 {
         // Native validation sees the ORIGINAL raw JSON, rejecting duplicates
         // before the web renderer parses it. The human signs only later.
-        _ = try await repository.prepareOperatorAccess(response.data, pin: resource.configuration.authority, now: UInt64(Date().timeIntervalSince1970))
+        _ = try await repository.prepareOperatorAccess(response.data, pin: resource.configuration.credentialAuthority, now: UInt64(Date().timeIntervalSince1970))
         let challenge = try object(response.data)
         guard let details = challenge["details"] as? [String: Any],
           Set(details.keys) == ["action","policy_revision","policy_digest_sha256"],

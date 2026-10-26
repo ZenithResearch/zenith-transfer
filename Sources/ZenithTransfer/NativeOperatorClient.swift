@@ -31,7 +31,7 @@ struct NativeOperatorInbox {
   init(_ raw: [String: Any], resource: RegisteredResource) throws {
     guard let inbox = raw["inbox"] as? [String: Any], let total = GrantJSON.integer(inbox["total"]),
       let ceiling = raw["ceiling"] as? [String: Any],
-      ceiling["receiver"] as? String == resource.id, ceiling["issuer"] as? String == resource.configuration.issuer,
+      ceiling["receiver"] as? String == resource.configuration.authorityOrigin, ceiling["issuer"] as? String == resource.configuration.issuer,
       GrantJSON.hex(raw["ceiling_digest_sha256"], 64),
       try GrantJSON.digest(ceiling) == raw["ceiling_digest_sha256"] as? String else { throw NativeGrantError.invalid }
     let rows = try GrantJSON.rows(inbox["items"])
@@ -47,7 +47,7 @@ struct NativeOperatorInbox {
     activeGrants = try GrantJSON.rows(raw["active_grants"] ?? [[String: Any]]())
     if var data = raw["catalog"] as? [String: Any], raw["scope_inventory_unavailable"] as? Bool != true {
       data["scopes"] = raw["scopes"] ?? [[String: Any]](); data["scope_semantics"] = "current_resources_at_access"
-      catalog = try WorkAccessCatalog.decode(GrantJSON.data(data), receiver: resource.id, issuer: resource.configuration.issuer)
+      catalog = try WorkAccessCatalog.decode(GrantJSON.data(data), receiver: resource.configuration.authorityOrigin, issuer: resource.configuration.issuer)
     } else { catalog = nil }
   }
   var scopes: [WorkScopeOption] { catalog?.scopes ?? [] }
@@ -99,7 +99,7 @@ struct NativeOperatorInbox {
     var body = identity; body["action"] = action
     let value = try await post("/devgraph/access-operator/v1/challenges", body)
     guard value["schema"] as? String == "castalia.access-request-challenge.v1",
-      value["receiver"] as? String == bridge.resource.id,
+      value["receiver"] as? String == bridge.resource.configuration.authorityOrigin,
       GrantJSON.equal(value["subject_public_key"], identity["subject_public_key"]),
       GrantJSON.equal(value["installation_id"], identity["installation_id"]),
       let details = value["details"] as? [String: Any], GrantJSON.equal(details["action"], action),
@@ -121,7 +121,7 @@ struct NativeOperatorInbox {
     action["action_id"] = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     if action["schema"] == nil { action["schema"] = "devgraph.access-operator-action.v1" }
     let challenge = try await obtain(action, identity: identity)
-    let record: [String: Any] = ["schema": "devgraph.operator-pending.v1", "origin": bridge.resource.id, "identity": identity,
+    let record: [String: Any] = ["schema": "devgraph.operator-pending.v1", "origin": bridge.resource.configuration.authorityOrigin, "identity": identity,
       "action": action, "assignment_digest": try Self.assignmentDigest(action), "dispatched": false]
     _ = try await bridge.invokeNative("save", ["record": String(decoding: try GrantJSON.data(record), as: UTF8.self)])
     original = record; self.challenge = challenge; state = .prepared

@@ -189,7 +189,44 @@ import ZenithKit
   }
 }
 
+/// Verify the selected access point before constructing a credential editor.
+/// A retained legacy action continues on its original transport and receiver.
 struct TransferOperatorView: View {
+  let resource: RegisteredResource
+  let repository: any WalletSession
+  @ObservedObject var walletModel: TransferModel
+  @State private var resolved: RegisteredResource?
+  @State private var error: String?
+  @Environment(\.dismiss) private var dismiss
+  var body: some View {
+    Group {
+      if let resolved { ResolvedTransferOperatorView(resource: resolved, repository: repository, walletModel: walletModel) }
+      else {
+        VStack(spacing: 20) {
+          if let error { Text(error).foregroundStyle(.red) }
+          else { ProgressView("Verifying service connection") }
+          Button("Close") { dismiss() }
+        }.padding(32).frame(minWidth: 700, minHeight: 420)
+      }
+    }.task(id: resource.id) {
+      do {
+        let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let journal = try OperatorJournal(directory: root.appendingPathComponent("ZenithTransfer/OperatorActions"), origin: resource.id)
+        if try journal.load() != nil { resolved = resource; return }
+        let config = resource.configuration
+        let transport = try config.network == .tailscale ? HostTailscaleConnection().transport() : PrivateTransport(workServer: config)
+        let updated = try await config.resolveService(transport: transport)
+        guard !Task.isCancelled else { transport.cancel(); return }
+        resolved = try RegisteredResource(configuration: updated)
+      } catch {
+        guard !Task.isCancelled else { return }
+        self.error = "Could not verify the service connection. Saved settings and original actions are preserved."
+      }
+    }
+  }
+}
+
+struct ResolvedTransferOperatorView: View {
   @StateObject private var bridge: TransferOperatorBridge
   @StateObject private var editor: NativeCredentialModel
   @ObservedObject private var walletModel: TransferModel

@@ -110,12 +110,12 @@ public extension DevgraphReadClient {
   func hasAccessRequest(store: WorkAccessRequestStore) async throws -> Bool {
     let identity = try JSONSerialization.jsonObject(with: await repository.graphAccessIdentityV2()) as? [String:String]
     guard let owner=identity?["subject_public_key"],let device=identity?["installation_id"] else { throw WalletFailure.core("invalid_response") }
-    return try store.existing(receiver:configuration.origin,subject:owner,installation:device) != nil
+    return try store.existing(receiver:configuration.authorityJournalKey,subject:owner,installation:device) != nil
   }
   func startNewAccessRequest(store: WorkAccessRequestStore, after result: WorkAccessRequestResult) async throws {
     let identity = try JSONSerialization.jsonObject(with: await repository.graphAccessIdentityV2()) as? [String:String]
     guard let owner=identity?["subject_public_key"],let device=identity?["installation_id"] else { throw WalletFailure.core("invalid_response") }
-    try store.startNew(receiver:configuration.origin,subject:owner,installation:device,after:result)
+    try store.startNew(receiver:configuration.authorityJournalKey,subject:owner,installation:device,after:result)
   }
 
   func prepareAccessRequest(store: WorkAccessRequestStore, resubmitOriginal: Bool = false, preference: WorkAccessPreference? = nil) async throws -> WorkAccessRequestConsent {
@@ -123,34 +123,34 @@ public extension DevgraphReadClient {
     let requirement = try await membershipRequirement()
     let identity = try JSONSerialization.jsonObject(with: await repository.graphAccessIdentityV2()) as? [String:String]
     guard let owner = identity?["subject_public_key"], let device = identity?["installation_id"] else { throw WalletFailure.core("invalid_response") }
-    let old = try store.existing(receiver:configuration.origin,subject:owner,installation:device)
-    let record = old ?? WorkAccessRequestRecord(receiver:configuration.origin,subject:owner,installation:device,requestID:UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased(),preference:preference)
+    let old = try store.existing(receiver:configuration.authorityJournalKey,subject:owner,installation:device)
+    let record = old ?? WorkAccessRequestRecord(receiver:configuration.authorityJournalKey,subject:owner,installation:device,requestID:UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased(),preference:preference)
     let submitting = old == nil || resubmitOriginal
     let intent: Any
     if submitting, let preferred = record.preference {
       intent = ["schema":"devgraph.access-intent.v2","preference":try JSONSerialization.jsonObject(with:JSONEncoder().encode(preferred))]
     } else { intent = NSNull() }
     let action:[String:Any] = ["schema":record.preference == nil ? "devgraph.access-request-action.v1":"devgraph.access-request-action.v2","action":submitting ? "submit":"status","request_id":record.requestID,"subject_public_key":owner,"installation_id":device,"intent":intent]
-    var request = URLRequest(url:URL(string:configuration.origin + "/devgraph/access-requests/v2/challenges")!)
+    var request = URLRequest(url:try configuration.apiURL("/devgraph/access-requests/v2/challenges"))
     request.httpMethod="POST";request.httpBody=try JSONSerialization.data(withJSONObject:["request":action]);request.setValue("application/json",forHTTPHeaderField:"Content-Type")
     let challenge = try await transport.request(request,maximum:16_384)
     guard let value = try JSONSerialization.jsonObject(with:challenge) as? [String:Any],
       let details = value["details"] as? [String:Any], NSDictionary(dictionary:details).isEqual(to:action) else { throw WalletFailure.core("invalid_response") }
     try repository.checkLifecycle(ticket)
-    let prepared = try await repository.prepareGraphAccessRequestV2(challenge,pin:configuration.authority,now:UInt64(Date().timeIntervalSince1970))
+    let prepared = try await repository.prepareGraphAccessRequestV2(challenge,pin:configuration.credentialAuthority,now:UInt64(Date().timeIntervalSince1970))
     try repository.checkLifecycle(ticket)
     // Persist before presenting consent. A server-rejected unsigned preparation
     // must not strand the member with a stale, unsubmitted catalog preference.
-    let saved = try store.begin(receiver:configuration.origin,subject:owner,installation:device,preference:record.preference,requestID:record.requestID)
+    let saved = try store.begin(receiver:configuration.authorityJournalKey,subject:owner,installation:device,preference:record.preference,requestID:record.requestID)
     guard saved == record else { throw WalletFailure.core("recover_original_request_first") }
     return WorkAccessRequestConsent(requestID:record.requestID,receiver:prepared.summary.receiver,issuer:prepared.summary.issuer,checkingStatus:old != nil && !resubmitOriginal,approvalExpires:Date(timeIntervalSince1970:Double(prepared.summary.expires_at)),preference:record.preference,membershipRequirement:requirement,native:prepared,lifecycle:ticket)
   }
   func submitAccessRequest(_ consent: WorkAccessRequestConsent) async throws -> WorkAccessRequestResult {
     try repository.checkLifecycle(consent.lifecycle)
-    guard consent.receiver == configuration.origin, consent.issuer == configuration.issuer else { throw WalletFailure.core("invalid_response") }
+    guard consent.receiver == configuration.authorityOrigin, consent.issuer == configuration.issuer else { throw WalletFailure.core("invalid_response") }
     let approved = try consent.membershipRequirement.approvalBody(
       await repository.approveGraphAccessRequestV2(consent.native, now:UInt64(Date().timeIntervalSince1970),ticket:consent.lifecycle))
-    var request=URLRequest(url:URL(string:configuration.origin + "/devgraph/access-requests/v2/actions")!)
+    var request=URLRequest(url:try configuration.apiURL("/devgraph/access-requests/v2/actions"))
     request.httpMethod="POST";request.httpBody=approved;request.setValue("application/json",forHTTPHeaderField:"Content-Type")
     // Never automatically repeat a submit after an uncertain response. The
     // persistent ID makes the next explicit preparation a status check.

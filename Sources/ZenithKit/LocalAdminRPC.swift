@@ -85,11 +85,11 @@ public struct LocalAdminRPC: Sendable {
   }
   public static func hasRegisteredService(configuration: WorkAccessConfiguration,
     home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Bool {
-    LocalServiceDiscovery.scan(home: home).services.contains { $0.interface == .walletAPI && $0.connection == configuration }
+    LocalServiceDiscovery.scan(home: home).services.contains { $0.interface == .walletAPI && $0.connection == (try? configuration.withServiceAccessPoint(nil)) }
   }
   public static func discover(configuration: WorkAccessConfiguration, home: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> Self {
     try configuration.validate()
-    let matches = LocalServiceDiscovery.scan(home: home).services.filter { $0.interface == .walletAPI && $0.connection == configuration }
+    let matches = LocalServiceDiscovery.scan(home: home).services.filter { $0.interface == .walletAPI && $0.connection == (try? configuration.withServiceAccessPoint(nil)) }
     guard matches.count == 1, let service = matches.first else { throw LocalAdminRPCError.changed }
     let file = home.appendingPathComponent(".zenith/rpc/v1/\(service.id).json")
     try safeParents(file, home: home)
@@ -114,7 +114,7 @@ public struct LocalAdminRPC: Sendable {
     }
   }
   func envelope(operation: String, body: Data, requestID: String) throws -> Data {
-    guard ["inspect","challenge","execute"].contains(operation), body.count <= 524288 else { throw LocalAdminRPCError.changed }
+    guard ["inspect","challenge","execute","service_challenge","service_execute"].contains(operation), body.count <= 524288 else { throw LocalAdminRPCError.changed }
     // Hierarchical grants nested inside a challenge/proof exceed the setup
     // parser's default depth of eight. Match the native RPC's bounded body
     // budget while retaining duplicate, byte, key and array checks.

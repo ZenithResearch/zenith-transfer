@@ -31,7 +31,7 @@ extension DevgraphReadClient {
   func membershipRequirement() async throws -> WorkMembershipRequirement {
     // Fixed-origin, credential-free metadata. This changes disclosure only;
     // it cannot change the issuer pin, grant scope or signature verification.
-    let url = URL(string: configuration.origin + "/monitor/wallet-access/v1")!
+    let url = try configuration.apiURL("/monitor/wallet-access/v1")
     let data = try await transport.request(URLRequest(url: url), maximum: 65_536)
     guard let value = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
       throw WalletFailure.core("invalid_response")

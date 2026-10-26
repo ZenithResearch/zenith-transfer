@@ -9,6 +9,10 @@ if len(sys.argv) != 2:
     raise SystemExit('Usage: python3 scripts/check-wallet-experience-parity.py /path/to/other-native-app')
 other = Path(sys.argv[1])
 paths = [
+    'Sources/ZenithKit/ServiceAccessPoint.swift',
+    'Sources/ZenithKit/LocalAdminRPC.swift',
+    'Tests/ZenithKitTests/ServiceAccessPointTests.swift',
+    'Tests/ZenithKitTests/Fixtures/access-point.json',
     'Sources/ZenithKit/HolderGrants.swift',
     'Sources/ZenithKit/WalletGrantsView.swift',
     'Sources/ZenithKit/DevgraphReadClient.swift',
