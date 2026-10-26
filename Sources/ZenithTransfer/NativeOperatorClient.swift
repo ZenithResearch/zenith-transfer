@@ -52,6 +52,19 @@ struct NativeOperatorInbox {
     permissions = try NativeGrantPermissions(ceiling, currentArenaIDs: catalog?.scopes.filter { $0.resource_path.path.count == 1 && $0.resource_path.path[0].hasPrefix("Arena/") }.map { String($0.resource_path.path[0].dropFirst(6)) } ?? [])
   }
   var scopes: [WorkScopeOption] { catalog?.scopes ?? [] }
+  // Compatibility with owner registrations written before Arena was supported.
+  // This is a server data migration, never an optional credential feature.
+  var authorizationUpdate: [String: Any]? {
+    guard let legacy = raw["owner_arena_upgrade"] as? [String: Any],
+      legacy["enabled"] as? Bool == false,
+      let digest = legacy["policy_digest_sha256"] as? String, GrantJSON.hex(digest, 64)
+    else { return nil }
+    let identifiers = scopes.filter { $0.resource_path.path.count == 1 && $0.resource_path.path[0].hasPrefix("Arena/") }
+      .map { String($0.resource_path.path[0].dropFirst(6)) }.sorted()
+    return ["schema":"devgraph.access-operator-action.v10", "action":"upgrade_arena_policy",
+      "expected_policy_digest_sha256":digest, "arena_read_ids":identifiers,
+      "arena_scope":"all_current_and_future", "create_arenas":true]
+  }
   func actionSchema(writes: Bool) -> String? {
     let value = activation[writes ? "write_action_schema" : "read_action_schema"] as? String
     let allowed = writes ? ["devgraph.access-operator-action.v3", "devgraph.access-operator-action.v5", "devgraph.access-operator-action.v7", "devgraph.access-operator-action.v9"] : ["devgraph.access-operator-action.v2", "devgraph.access-operator-action.v4", "devgraph.access-operator-action.v6", "devgraph.access-operator-action.v8"]
@@ -138,6 +151,27 @@ struct NativeOperatorInbox {
     if let write = s["write"], ["devgraph.access-operator-action.v3", "devgraph.access-operator-action.v5", "devgraph.access-operator-action.v7", "devgraph.access-operator-action.v9"].contains(schema) { return try GrantJSON.digest(write) }
     if let read = s["read"], ["devgraph.access-operator-action.v2", "devgraph.access-operator-action.v4", "devgraph.access-operator-action.v6", "devgraph.access-operator-action.v8"].contains(schema) { return try GrantJSON.digest(read) }
     return NSNull()
+  }
+  func loadInbox(after: String? = nil) async throws -> [String: Any] {
+    var action: [String: Any] = ["action":"inbox"]
+    if let after { action["after_id"] = after }
+    try await prepare(action)
+    var result = try await confirm()
+    let inbox = try NativeOperatorInbox(result, resource: bridge.resource)
+    if let update = inbox.authorizationUpdate {
+      // The Wallet presents this exact owner-signed migration before applying
+      // anything. A cancellation or uncertain result retains its original action.
+      // Never reinterpret an inbox proof as permission to change authorization.
+      try await prepare(update)
+      let migrated = try await confirm()
+      guard migrated["applied"] as? Bool == true else { throw NativeGrantError.recovery }
+      try await prepare(action)
+      result = try await confirm()
+      guard try NativeOperatorInbox(result, resource: bridge.resource).authorizationUpdate == nil else {
+        throw NativeGrantError.changed
+      }
+    }
+    return result
   }
   func prepare(_ fields: [String: Any]) async throws {
     try begin(); defer { executing = false }

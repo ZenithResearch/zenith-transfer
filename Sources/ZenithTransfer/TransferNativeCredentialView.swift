@@ -24,7 +24,10 @@ import ZenithKit
     do { client = try NativeOperatorClient(bridge: bridge); state = client!.state }
     catch { self.error = "The original action could not be read safely. Its record is preserved." }
   }
-  var preparedName: String { client?.action?["action"] as? String ?? "action" }
+  var preparedName: String {
+    let action = client?.action?["action"] as? String ?? "action"
+    return action == "upgrade_arena_policy" ? "authorization data update" : action.replacingOccurrences(of: "_", with: " ")
+  }
   var isRecovery: Bool { client?.action?["action"] as? String == "status" || client?.action?["action"] as? String == "arena_policy_status" || client?.action?["action"] as? String == "arena_create_status" }
   var expiry: Date? { GrantJSON.integer(client?.challenge?["expires_at"]).map { Date(timeIntervalSince1970: Double($0)) } }
   func run(_ operation: @escaping () async throws -> Void) {
@@ -44,22 +47,7 @@ import ZenithKit
   func loadInbox(after: String? = nil) {
     run { [self] in
       guard let client else { throw NativeGrantError.invalid }
-      var action: [String: Any] = ["action": "inbox"]
-      if let after { action["after_id"] = after }
-      try await client.prepare(action); state = client.state
-      let result = try await client.confirm(); try accept(result)
-    }
-  }
-  func enableArenaSharing(_ identifiers: Set<String>) {
-    run { [self] in
-      guard let info = inbox?.raw["owner_arena_upgrade"] as? [String: Any],
-        info["enabled"] as? Bool == false, let digest = info["policy_digest_sha256"] as? String,
-        !identifiers.isEmpty, let client else { throw NativeGrantError.invalid }
-      try await client.prepare(["schema":"devgraph.access-operator-action.v10", "action":"upgrade_arena_policy",
-        "expected_policy_digest_sha256":digest, "arena_read_ids":identifiers.sorted(),
-        "arena_scope":"all_current_and_future", "create_arenas":true])
-      state = client.state
-      try accept(await client.confirm())
+      try accept(await client.loadInbox(after: after))
     }
   }
   func createArena(id: String, title: String, description: String) {
@@ -164,10 +152,14 @@ import ZenithKit
   func resume() {
     run { [self] in
       guard let client else { throw NativeGrantError.invalid }
+      let originalName = client.action?["action"] as? String
       if client.state == .unknown { try await client.prepareRecovery() }
       else if client.state == .prepared { try await client.refreshPrepared() }
       state = client.state
-      try accept(await client.confirm())
+      let result = try await client.confirm()
+      if originalName == "upgrade_arena_policy", result["applied"] as? Bool == true {
+        try accept(await client.loadInbox())
+      } else { try accept(result) }
     }
   }
   func cancelPrepared() {
@@ -205,7 +197,7 @@ import ZenithKit
       let status = result["status"] as? String ?? ""
       switch status {
       case "active" where result["member_grants_changed"] as? Bool == false:
-        self.status = "Arena sharing enabled for the reviewed records. Existing member grants are unchanged. Reload the inbox to select a recipient and grant Arena access."
+        self.status = "DevGraph authorization data updated. Existing member grants are unchanged. Reload the inbox to configure credentials."
       case "active": self.status = "Grant activated. The recipient can obtain and reuse access while it remains valid."
       case "not_applied": self.status = "The original owner upgrade was closed without applying. Reload the inbox before preparing a new review."
       case "created": self.status = "Arena created. Reload the inbox to share it through an explicit recipient credential."
@@ -310,9 +302,6 @@ struct ResolvedTransferOperatorView: View {
           if editor.state != .idle {
             pendingAction
           } else if let inbox = editor.inbox {
-            if let info = inbox.raw["owner_arena_upgrade"] as? [String: Any], info["enabled"] as? Bool == false {
-              ownerArenaSetup(inbox)
-            }
             if let info = inbox.raw["owner_arena_upgrade"] as? [String:Any], info["create_arenas"] as? Bool == true {
               createArenaForm
             }
@@ -338,6 +327,7 @@ struct ResolvedTransferOperatorView: View {
       .sheet(item: $bridge.consent, onDismiss: { bridge.resolve(false) }) { consent in
         VStack(alignment: .leading, spacing: 16) {
           Text(bridge.confirmationTitle).font(.title2.bold())
+          if let explanation = bridge.confirmationExplanation { Text(explanation).font(.callout) }
           Text("\(consent.receiver)\nIssuer: \(consent.issuer)").textSelection(.enabled)
           Text("Review this exact action. Wallet approval expires at \(consent.expiresAt.formatted()).")
           ScrollView { Text(bridge.disclosure).font(.system(.body, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
@@ -370,16 +360,6 @@ struct ResolvedTransferOperatorView: View {
         Button("Review Arena creation in Wallet") { editor.createArena(id:newArenaID,title:newArenaTitle,description:newArenaDescription) }
           .buttonStyle(TransferPrimaryButtonStyle()).disabled(!editing || !unlocked || newArenaID.isEmpty || newArenaTitle.isEmpty)
       }.padding(.vertical,8)
-    }
-  }
-  private func ownerArenaSetup(_ inbox: NativeOperatorInbox) -> some View {
-    GroupBox("Enable Arena sharing") {
-      VStack(alignment: .leading, spacing: 12) {
-        Text("Enable owner administration for every current and future Arena, including creating Arenas. Recipient credentials still require an explicit permission and scope selection.").foregroundStyle(.secondary)
-        Text("Restarts only this graph’s existing Wallet services. Existing member grants and Work rules are unchanged. Onward delegation remains disabled.").font(.caption).foregroundStyle(.secondary)
-        Button("Review Arena sharing in Wallet") { editor.enableArenaSharing(Set(inbox.scopes.filter { $0.resource_path.path.count == 1 && $0.resource_path.path[0].hasPrefix("Arena/") }.map { String($0.resource_path.path[0].dropFirst(6)) })) }
-          .buttonStyle(TransferPrimaryButtonStyle()).disabled(!editing || !unlocked)
-      }.padding(8)
     }
   }
   private func requestList(_ inbox: NativeOperatorInbox) -> some View {
@@ -467,7 +447,7 @@ struct ResolvedTransferOperatorView: View {
           }))
         }
       } else {
-        Text("Arena records are not enabled by this service’s owner policy. Existing Work scope selections remain available.").font(.caption).foregroundStyle(.secondary)
+        Text("No Arena records are available within this administrator’s permissions.").font(.caption).foregroundStyle(.secondary)
       }
       Label(WorkReadPermission.arenaAvailability, systemImage: "info.circle")
         .font(.caption).foregroundStyle(.secondary)

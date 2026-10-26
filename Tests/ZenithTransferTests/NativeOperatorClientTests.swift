@@ -137,6 +137,86 @@ final class NativeOperatorClientTests: XCTestCase {
     XCTAssertEqual(client.state,.idle)
     XCTAssertNil(try bridge.retainedNativeAction())
   }
+  @MainActor func testInboxMigratesLegacyOwnerDataWithSeparateProofThenReturnsOrdinaryCredentials() async throws {
+    try await exerciseOwnerCompatibility(cancelUpdate: false)
+  }
+  @MainActor func testCancelledOwnerCompatibilityNeverAppliesOrOpensUnverifiedEditor() async throws {
+    try await exerciseOwnerCompatibility(cancelUpdate: true)
+  }
+  @MainActor private func exerciseOwnerCompatibility(cancelUpdate: Bool) async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (repo, resource, _) = try await fixture(root)
+    var applied = false, inboxReads = 0
+    let rpc: (String, Data) async throws -> PrivateHTTPResponse = { operation, bytes in
+      let input = try GrantJSON.object(bytes)
+      var output: [String: Any]
+      if operation == "challenge" {
+        var request = input, action = input["action"] as! [String: Any]
+        if action["action"] as? String == "upgrade_arena_policy" {
+          XCTAssertEqual(action["arena_read_ids"] as? [String], ["research"])
+          action["previous_selected_policy_digest_sha256"] = action.removeValue(forKey: "expected_policy_digest_sha256")
+          action["proposal_digest_sha256"] = String(repeating: "a", count: 64)
+          action["owner_grant_id"] = String(repeating: "b", count: 64)
+          action["new_primary_policy_digest_sha256"] = String(repeating: "c", count: 64)
+          action["resource_id"] = "fixture-resource"
+          action["primary_receiver"] = resource.id; action["selected_receiver"] = resource.id
+          action["previous_primary_policy_digest_sha256"] = String(repeating: "e", count: 64)
+          action["affected_receivers"] = [resource.id]
+        }
+        request["action"] = action; output = self.challenge(request)
+      } else {
+        let ch = input["challenge"] as! [String: Any]
+        let action = (ch["details"] as! [String: Any])["action"] as! [String: Any]
+        output = ["schema":"devgraph.access-operator-result.v2", "action_id":action["action_id"]!, "authority_issued":false]
+        if action["action"] as? String == "inbox" {
+          inboxReads += 1
+          var reads: [[String: Any]] = [["scope":"devgraph.work.read", "operations":["list","get"], "relationship_types":[], "work_kinds":["Task"], "include_archived":false]]
+          if applied { reads.append(["scope":"devgraph.arena.read", "all_arenas":true]) }
+          let ceiling: [String: Any] = ["schema":applied ? "devgraph.access-draft.v7" : "devgraph.access-draft.v5", "issuer":"fixture", "receiver":resource.id, "lifetime_seconds":300, "validity":["schema":"castalia.grant-validity.v1", "mode":"until_revoked", "not_before":1], "read_grants":reads, "write_grants":[]]
+          let catalog: [String: Any] = ["schema":"devgraph.access-catalog.v1", "issuer":"fixture", "receiver":resource.id, "revision":1, "presets":[[String:Any]](), "published_paths":[[String:Any]](), "policy_digest_sha256":String(repeating:"d",count:64)]
+          var published = catalog; published["catalog_digest_sha256"] = try GrantJSON.digest(catalog)
+          output.merge(["ceiling":ceiling, "ceiling_digest_sha256":try GrantJSON.digest(ceiling),
+            "inbox":["items":[[String:Any]](),"total":0,"next_cursor":NSNull()],
+            "catalog":published, "scopes":[["resource":"Arena/research","title":"Research","parent":NSNull(),"resource_path":["schema":"devgraph.resource-path.v1","path":["Arena/research"]]]],
+            "owner_arena_upgrade":["enabled":applied,"policy_digest_sha256":String(repeating:"d",count:64),"create_arenas":applied]]) { _, new in new }
+        } else {
+          XCTAssertEqual(ch["operation"] as? String, "access.decide")
+          XCTAssertEqual(action["action"] as? String, "upgrade_arena_policy")
+          XCTAssertFalse(applied); applied = true
+          output.merge(["status":"active","applied":true,"member_grants_changed":false,
+            "arena_read_ids":action["arena_read_ids"]!, "proposal_digest_sha256":action["proposal_digest_sha256"]!]) { _, new in new }
+        }
+      }
+      return PrivateHTTPResponse(status:200,data:try GrantJSON.data(output))
+    }
+    let bridge = TransferOperatorBridge(resource:resource,repository:repo,journalDirectory:root.appendingPathComponent("actions"),rpcExchange:rpc)
+    defer { bridge.cancel() }
+    let client = try NativeOperatorClient(bridge:bridge)
+    let task = Task { try await client.loadInbox() }
+    for operation in cancelUpdate ? ["access.inbox","access.decide"] : ["access.inbox","access.decide","access.inbox"] {
+      for _ in 0..<300 { if bridge.consent != nil { break }; try await Task.sleep(nanoseconds:10_000_000) }
+      XCTAssertEqual(bridge.consent?.operation,operation)
+      guard bridge.consent != nil else { task.cancel(); throw NativeGrantError.invalid }
+      if operation == "access.decide" {
+        XCTAssertEqual(bridge.confirmationTitle,"Update this DevGraph’s authorization data?")
+        XCTAssertNotNil(bridge.confirmationExplanation)
+      }
+      bridge.resolve(!(cancelUpdate && operation == "access.decide"))
+      await Task.yield()
+    }
+    if cancelUpdate {
+      do { _ = try await task.value; XCTFail("Cancelled migration must stop the flow") } catch {}
+      XCTAssertFalse(applied); XCTAssertEqual(inboxReads,1)
+      XCTAssertEqual(client.state,.prepared); XCTAssertNotNil(try bridge.retainedNativeAction())
+    } else {
+      let inbox = try NativeOperatorInbox(await task.value, resource:resource)
+      XCTAssertTrue(applied); XCTAssertEqual(inboxReads,2)
+      XCTAssertEqual(inbox.permissions.arenaIDs,["research"])
+      XCTAssertNil(inbox.authorizationUpdate); XCTAssertEqual(client.state,.idle)
+      XCTAssertNil(try bridge.retainedNativeAction())
+    }
+  }
   @MainActor private func exerciseInboxRecovery(localRPC: Bool) async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root); NativeOperatorResponse.handler = nil }

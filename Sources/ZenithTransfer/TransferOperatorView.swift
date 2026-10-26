@@ -97,8 +97,13 @@ extension TransferOperatorBridge {
       let value = consent.flatMap { try? object($0.details) }
       let action = (value?["action"] as? [String: Any])?["action"] as? String
       return ["approve":"Activate this exact access grant?", "deny":"Decline this access request?",
-        "revoke":"Revoke this access grant?", "upgrade_arena_policy":"Enable owner Arena administration?", "create_arena":"Create this Arena?"][action ?? ""] ?? "Confirm this access decision?"
+        "revoke":"Revoke this access grant?", "upgrade_arena_policy":"Update this DevGraph’s authorization data?", "create_arena":"Create this Arena?"][action ?? ""] ?? "Confirm this access decision?"
     }
+  }
+  var confirmationExplanation: String? {
+    let value = consent.flatMap { try? object($0.details) }
+    guard (value?["action"] as? [String: Any])?["action"] as? String == "upgrade_arena_policy" else { return nil }
+    return "This DevGraph has an older stored owner policy. Update it so the registered owner can administer all current and future Arenas and create Arenas. This issues no recipient credential and preserves existing grants. Arena permissions will then appear in the ordinary credential editor."
   }
   func resolve(_ approved: Bool) {
     let next = continuation; continuation = nil; consent = nil; next?.resume(returning: approved)
