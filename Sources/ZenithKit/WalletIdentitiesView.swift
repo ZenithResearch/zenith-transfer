@@ -165,10 +165,13 @@ public struct PortableWalletIdentitiesView: View {
 
 public struct WalletIdentityReviewRows: View {
   let section: WalletIdentitySection
-  public init(section: WalletIdentitySection) { self.section = section }
+  let showsHeading: Bool
+  public init(section: WalletIdentitySection, showsHeading: Bool = true) {
+    self.section = section; self.showsHeading = showsHeading
+  }
   public var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("Wallet identities (\(section.accounts.count))").font(.headline)
+      if showsHeading { Text("Wallet identities (\(section.accounts.count))").font(.headline).accessibilityAddTraits(.isHeader) }
       ForEach(section.accounts) { record in
         VStack(alignment: .leading, spacing: 5) {
           Text(record.kind.title + " · " + record.label).font(.headline)
