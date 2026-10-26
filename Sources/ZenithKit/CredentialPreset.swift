@@ -55,7 +55,7 @@ public enum WorkReadPermission: String, CaseIterable, Sendable {
     case .relationships: return "Read links between permitted Work. Related resources outside the scope stay inaccessible."
     }
   }
-  public static let arenaAvailability = "Read Arenas is not available in this credential format. Choosing an Arena as a scope limits Work access; it does not grant access to the Arena record itself."
+  public static let arenaAvailability = "Choosing an Arena as a Work scope limits its descendants. Reading the Arena record itself requires a separate Arena permission."
 }
 
 /// An immutable permission recipe. Scope, holder, validity and server approval are separate.
@@ -67,26 +67,28 @@ public struct CredentialPresetRevision: Codable, Equatable, Identifiable, Sendab
   public let description: String
   public let readOperations: [String]
   public let writeOperations: [String]
+  public let arenaRead: Bool?
   public let seat: PresetSeatAssociation?
   public let archived: Bool
   public var id: String { presetID + ":" + String(revision) }
   public static let allReads = ["list", "get", "relationships"]
   enum CodingKeys: String, CodingKey {
     case schema, revision, name, description, seat, archived
+    case arenaRead = "arena_read"
     case presetID = "preset_id", readOperations = "read_operations", writeOperations = "write_operations"
   }
   public init(presetID: String, revision: UInt64, name: String, description: String = "",
-    readOperations: [String], writeOperations: [String], seat: PresetSeatAssociation? = nil, archived: Bool = false) throws {
-    schema = "zenith.credential-preset.v1"; self.presetID = presetID; self.revision = revision
+    readOperations: [String], writeOperations: [String], seat: PresetSeatAssociation? = nil, archived: Bool = false, arenaRead: Bool = false) throws {
+    schema = arenaRead ? "zenith.credential-preset.v2" : "zenith.credential-preset.v1"; self.arenaRead = arenaRead ? true : nil; self.presetID = presetID; self.revision = revision
     self.name = name; self.description = description; self.readOperations = readOperations
     self.writeOperations = writeOperations; self.seat = seat; self.archived = archived
     try validate()
   }
   public func validate() throws {
-    guard schema == "zenith.credential-preset.v1", presetID.range(of: "^[a-z][a-z0-9-]{0,63}$", options: .regularExpression) != nil,
+    guard (schema == "zenith.credential-preset.v1" && arenaRead == nil || schema == "zenith.credential-preset.v2" && arenaRead == true), presetID.range(of: "^[a-z][a-z0-9-]{0,63}$", options: .regularExpression) != nil,
       revision > 0, revision <= 9_007_199_254_740_991,
       !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, name.unicodeScalars.count <= 80, description.unicodeScalars.count <= 2000,
-      !readOperations.isEmpty || !writeOperations.isEmpty,
+      !readOperations.isEmpty || !writeOperations.isEmpty || arenaRead == true,
       Set(readOperations).count == readOperations.count, Set(writeOperations).count == writeOperations.count,
       readOperations == Self.allReads.filter({ readOperations.contains($0) }),
       writeOperations == OwnerPermissionPreset.allOperations.filter({ writeOperations.contains($0) })
@@ -106,7 +108,7 @@ public struct CredentialPresetRevision: Codable, Equatable, Identifiable, Sendab
   }
   static func checkKeys(_ raw: [String: Any]) throws {
     let required: Set<String> = ["schema", "preset_id", "revision", "name", "description", "read_operations", "write_operations", "archived"]
-    guard required.isSubset(of: Set(raw.keys)), Set(raw.keys).isSubset(of: required.union(["seat"])) else { throw CredentialPresetError.invalid }
+    guard required.isSubset(of: Set(raw.keys)), Set(raw.keys).isSubset(of: required.union(raw["schema"] as? String == "zenith.credential-preset.v2" ? ["seat", "arena_read"] : ["seat"])) else { throw CredentialPresetError.invalid }
     if let seat = raw["seat"] {
       guard let seat = seat as? [String: Any], Set(seat.keys) == ["seat_class_iri", "seat_type_iri", "label"] else { throw CredentialPresetError.invalid }
     }

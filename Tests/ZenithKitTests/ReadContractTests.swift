@@ -294,6 +294,12 @@ private final class ReadBackend {
       }
       let parameters = try XCTUnwrap(call["parameters"] as? [String: Any])
       let path = try XCTUnwrap(parameters["path"] as? String)
+      if path.hasPrefix("/arenas/research/members") { return try json(vectors["related"]!) }
+      if path.hasPrefix("/arenas") {
+        let arena: [String: Any] = ["kind": "Arena", "id": "research", "title": "Research", "description": "Shared Arena", "version": 1, "archived": false]
+        if path == "/arenas/research" { return try json(arena) }
+        return try json(["items": [arena]])
+      }
       if path.hasPrefix("/work/") { return try json(vectors["related"]!) }
       if path.hasPrefix("/todos/v2/Todo/") { return try json(vectors["detail"]!) }
       return try json(vectors[path.contains("after=") ? "next_page" : "page"]!)
@@ -313,11 +319,18 @@ private final class ReadBackend {
       ]
     }
     let operations = grant["operations"] as! [String]
-    let permissions = operations.map {
+    var permissions = operations.map {
       [
         "operation": "devgraph.work." + $0, "resource": "https://work.zenith-research.ca/devgraph",
         "constraints": grant,
       ] as [String: Any]
+    }
+    var grants = [grant]
+    if version == .arenaV5 {
+      let arena: [String: Any] = ["scope": "devgraph.arena.read", "arena_ids": ["research"]]
+      grants.append(arena)
+      permissions += ["list", "get"].map { ["operation": "devgraph.arena." + $0,
+        "resource": "https://work.zenith-research.ca/devgraph", "constraints": arena] }
     }
     policy = [
       "schema": "castalia.read-policy.v1", "issuer": "fixture", "key_id": "test-key",
@@ -335,7 +348,7 @@ private final class ReadBackend {
       "receiver": "https://example.test",
       "details": [
         "schema": version.rawValue, "policy_digest": String(repeating: "44", count: 32),
-        "read_grants": [grant], "authority_policy": policy,
+        "read_grants": grants, "authority_policy": policy,
       ],
       "issued_at": now, "expires_at": now + 120, "credential_expires_at": now + 600,
     ]
@@ -352,7 +365,8 @@ private func data(hex: String) throws -> Data {
 
 final class ReadContractTests: XCTestCase {
   func testReusableGrantReviewSaveReloadAndSelfDerivedReadAcrossNativeCore() async throws {
-    let backend = try ReadBackend(.pathV4)
+    for version in [WorkReadProtocol.pathV4, .arenaV5] {
+    let backend = try ReadBackend(version)
     backend.reusable = true
     ReadProtocolStub.use(backend)
     defer { ReadProtocolStub.use(nil) }
@@ -385,10 +399,23 @@ final class ReadContractTests: XCTestCase {
       backend.rootIssueCount, 1, "Read reuse must derive in Wallet, without asking the issuer again"
     )
     let manifest = try await client.manifest()
-    XCTAssertEqual(manifest.readProtocol, .pathV4)
+    XCTAssertEqual(manifest.readProtocol, version)
+    if version == .arenaV5 {
+      let page = try await client.arenas()
+      XCTAssertEqual(page.items.map(\.id), ["research"])
+      let arena = try await client.arena(id: "research")
+      XCTAssertEqual(arena.title, "Research")
+      let members = try await client.arenaMembers(id: "research")
+      XCTAssertEqual(members.items.map(\.rowID), ["Task/task"])
+      let calls = backend.calls.count
+      do { _ = try await client.arena(id: "private"); XCTFail("Private Arena") } catch {}
+      XCTAssertEqual(backend.calls.count, calls)
+      XCTAssertEqual(manifest.read_grants.filter(\.isArena).flatMap { $0.arena_ids ?? [] }, ["research", "research"])
+    }
     let preview = try await repository.prepareHolderGrantBackup(grantBackup)
     XCTAssertEqual(preview.holderGrants?.count, 1)
     await repository.cancel()
+    }
   }
 
   func testProducerPagesPreserveCanonicalProgressMetadataAndSnapshotCursor() throws {
@@ -530,7 +557,7 @@ final class ReadContractTests: XCTestCase {
   }
 
   func testModernAndLegacyEnrollmentPersistenceAndSignedReadsThroughNativeCore() async throws {
-    for version in [WorkReadProtocol.nativeV2, .monitorV3, .pathV4] {
+    for version in [WorkReadProtocol.nativeV2, .monitorV3, .pathV4, .arenaV5] {
       let backend = try ReadBackend(version)
       ReadProtocolStub.use(backend)
       defer { ReadProtocolStub.use(nil) }

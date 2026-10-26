@@ -64,6 +64,7 @@ import ZenithKit
     guard let inbox else { return }
     presetID = id; presetReference = nil; review = nil
     let reads: [String], writes: [String]
+    choice.arenaIDs = []
     if id.hasPrefix("server:"), let recipe = inbox.catalog?.presets.first(where: { "server:" + $0.id == id }) {
       reads = recipe.read_operations; writes = recipe.write_operations
       presetReference = ["id": recipe.id, "version": recipe.version, "catalog_digest_sha256": inbox.catalog!.catalog_digest_sha256]
@@ -76,7 +77,7 @@ import ZenithKit
     if inbox.activation["write"] as? Bool == false { choice.writes = [] }
     if !choice.paths.isEmpty { choice.writes.remove("devgraph.work.create.v2") }
     let omitted = Set(reads).subtracting(choice.reads).count + Set(writes).subtracting(choice.writes).count
-    recipeNotice = omitted > 0 ? "\(omitted) recipe permissions are unavailable for this server or path. Only the checked permissions will be reviewed." : "This recipe selects actions only. Choose resource coverage separately."
+    recipeNotice = (library.available.first { "local:" + $0.id == id }?.arenaRead == true ? "Select the Arena records below. " : "") + (omitted > 0 ? "\(omitted) recipe permissions are unavailable for this server or path. Only the checked permissions will be reviewed." : "This recipe selects actions only. Choose resource coverage separately.")
   }
   func editedPermissions() { review = nil; presetID = "custom"; presetReference = nil; recipeNotice = nil }
   func changeScope(_ value: String) {
@@ -361,7 +362,7 @@ struct ResolvedTransferOperatorView: View {
         scopeChoices(inbox)
         validityChoices(inbox)
         Button("Review exact selection in Wallet") { editor.reviewSelection() }.buttonStyle(TransferPrimaryButtonStyle())
-          .disabled(!unlocked || !editing || editor.scopeMode == "choose" || editor.choice.reads.isEmpty && editor.choice.writes.isEmpty)
+          .disabled(!unlocked || !editing || editor.scopeMode == "choose" || editor.choice.reads.isEmpty && editor.choice.writes.isEmpty && editor.choice.arenaIDs.isEmpty)
       }
       DisclosureGroup("Decline request") {
         TextField("Reason", text: $editor.declineReason)
@@ -395,6 +396,19 @@ struct ResolvedTransferOperatorView: View {
             }
           }
         }
+      }
+      if !inbox.permissions.arenaIDs.isEmpty {
+        Text("Arena records").font(.headline)
+        Text("List and read only the checked Arena records. Work coverage is selected separately below.").font(.caption).foregroundStyle(.secondary)
+        ForEach(inbox.permissions.arenaIDs, id: \.self) { id in
+          let label = inbox.scopes.first { $0.resource_path.path.last == "Arena/" + id }?.title ?? id
+          Toggle(label, isOn: Binding(get: { editor.choice.arenaIDs.contains(id) }, set: { on in
+            if on { editor.choice.arenaIDs.insert(id) } else { editor.choice.arenaIDs.remove(id) }
+            editor.editedPermissions()
+          }))
+        }
+      } else {
+        Text("Arena records are not enabled by this service’s owner policy. Existing Work scope selections remain available.").font(.caption).foregroundStyle(.secondary)
       }
       Label(WorkReadPermission.arenaAvailability, systemImage: "info.circle")
         .font(.caption).foregroundStyle(.secondary)
@@ -513,23 +527,24 @@ struct NativeGrantReview: View {
           let grants = draft[mode == "read" ? "read_grants" : "write_grants"] as? [[String: Any]] ?? []
           ForEach(Array(grants.enumerated()), id: \.offset) { _, grant in
             VStack(alignment: .leading, spacing: 8) {
+              if grant["scope"] as? String == "devgraph.arena.read" { Text("List and read Arena records").font(.headline) }
               if let ops = grant["operations"] as? [String] { Text("Read: " + ops.joined(separator: ", ")) }
               if let op = grant["operation"] as? String { Text(OwnerPermissionPreset.title(op.replacingOccurrences(of: "devgraph.work.", with: "").replacingOccurrences(of: ".v2", with: ""))) }
               if let paths = try? NativeGrantSelection.paths(grant), !paths.isEmpty {
                 ForEach(paths, id: \.self) { Text(WorkScopeSelection.label($0, scopes: scopes)).font(.callout) }
                 Text("Current and future descendants at access time; moved-out resources lose access.").font(.caption).foregroundStyle(.secondary)
-              } else {
+              } else if grant["scope"] as? String != "devgraph.arena.read" {
                 Text("All matching resources permitted by the server’s filters below.").font(.callout)
               }
               if let kinds = grant["work_kinds"] as? [String] { Text("Object kinds: " + kinds.joined(separator: ", ")) }
               if let ids = grant["work_ids"] as? [String] { Text("Only objects: " + ids.joined(separator: ", ")).font(.caption) }
-              if let areas = grant["arena_ids"] as? [String] { Text("Additional Arena filter: " + areas.joined(separator: ", ")).font(.caption) }
+              if let areas = grant["arena_ids"] as? [String] { Text((grant["scope"] as? String == "devgraph.arena.read" ? "Only Arena records: " : "Additional Arena filter: ") + areas.joined(separator: ", ")).font(.caption) }
               if let resources = grant["resources"] as? [[String: Any]] {
                 ForEach(Array(resources.enumerated()), id: \.offset) { _, row in
                   Text((row["kind"] as? String ?? "") + ": " + ((row["ids"] as? [String])?.joined(separator: ", ") ?? "All matching objects within the selected scope")).font(.caption)
                 }
               }
-              if mode == "read" { Text(grant["include_archived"] as? Bool == true ? "Archived work included" : "Archived work excluded").font(.caption).foregroundStyle(.secondary) }
+              if mode == "read", grant["scope"] as? String != "devgraph.arena.read" { Text(grant["include_archived"] as? Bool == true ? "Archived work included" : "Archived work excluded").font(.caption).foregroundStyle(.secondary) }
             }.padding(14).frame(maxWidth: .infinity, alignment: .leading).background(Color.primary.opacity(0.035)).cornerRadius(10)
           }
         }

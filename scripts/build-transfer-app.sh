@@ -31,7 +31,7 @@ cat > "$app_dir/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Zenith Transfer</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.2.0</string>
-<key>CFBundleVersion</key><string>45</string>
+<key>CFBundleVersion</key><string>46</string>
 <key>CFBundleIconFile</key><string>Zenith</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
@@ -45,4 +45,5 @@ if [ -d "$final_app" ]; then
   mv "$final_app" "$previous_dir/Zenith Transfer.app"
 fi
 mv "$app_dir" "$final_app"
+python3 "$project_dir/scripts/prune-build-backups.py" --apply
 printf 'Built %s\n' "$final_app"

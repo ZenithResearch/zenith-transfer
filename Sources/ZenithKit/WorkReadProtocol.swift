@@ -6,6 +6,7 @@ public enum WorkReadProtocol: String, Codable, Sendable {
   case nativeV2 = "devgraph.native-read-scope.v2"
   case monitorV3 = "devgraph.native-read-scope.v3"
   case pathV4 = "devgraph.native-read-scope.v4"
+  case arenaV5 = "devgraph.native-read-scope.v5"
 
   var operations: Set<String> {
     self == .nativeV2 ? ["list", "get"] : ["list", "get", "relationships"]
@@ -15,7 +16,7 @@ public enum WorkReadProtocol: String, Codable, Sendable {
     return self == .nativeV2 ? original : original.union(["Todo"])
   }
   var resultSchema: String {
-    self == .nativeV2 ? "devgraph.native-read-result.v2" : self == .monitorV3 ? "devgraph.native-read-result.v3" : "devgraph.native-read-result.v4"
+    self == .nativeV2 ? "devgraph.native-read-result.v2" : self == .monitorV3 ? "devgraph.native-read-result.v3" : self == .pathV4 ? "devgraph.native-read-result.v4" : "devgraph.native-read-result.v5"
   }
   var requestPath: String {
     self == .nativeV2 ? "/devgraph/native-read/v2/requests" : "/monitor/wallet-access/v1/requests"
