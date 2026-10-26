@@ -20,19 +20,18 @@ struct TransferDataFileView: View {
   @State private var fileName: String?
   @State private var password = ""
   @State private var exportPassword = ""
-  @State private var preview: RestorePreview?
+  @State private var preview: WalletImportReview?
   @State private var notice: String?
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 24) {
         Text("Wallet data").font(.largeTitle.bold())
-        Text("A data file contains supported profile fields, membership proofs and derived crypto account descriptors. Local application account records and network settings are not included. It cannot restore your signing identity or connect service access.").foregroundStyle(.secondary)
+        Text("A Castaway data file contains supported profile fields, membership proofs, saved account identities and public account descriptors. Application sessions and network settings are not included. It cannot restore your signing identity or connect service access.").foregroundStyle(.secondary)
         if let preview {
           Text("Review import").font(.title2.bold())
-          Text(preview.publicKey).font(.caption.monospaced()).textSelection(.enabled)
-          if let identities = preview.walletIdentities { WalletIdentityReviewRows(section: identities) }
+          WalletImportReviewContent(review: preview)
           Text("Your active membership stays unchanged. Nothing will be published.").foregroundStyle(.secondary)
-          Button("Import data") { model.perform({ try await $0.commit(preview) }) { _ in self.preview = nil; file = nil; notice = "Data saved to your wallet." } }
+          Button("Import data") { model.perform({ try await $0.commit(preview.preview) }) { _ in self.preview = nil; file = nil; notice = "Data saved to your wallet." } }
             .buttonStyle(TransferPrimaryButtonStyle()).disabled(!model.walletUnlocked || model.busy)
           Button("Cancel") { self.preview = nil; model.repository?.invalidatePendingWork(); Task { await model.repository?.cancel() } }
         } else {
@@ -48,7 +47,10 @@ struct TransferDataFileView: View {
             TransferPasswordField(title: "Data file password", text: $password)
             Button("Review data") {
               let secret = password; password = ""
-              model.perform({ try await $0.prepareData(file: file, password: secret) }) { preview = $0 }
+              model.perform({ repository in
+                let context = try WalletImportReview.Context.dataFile(file, recovering: false)
+                return WalletImportReview(preview: try await repository.prepareData(file: file, password: secret), context: context)
+              }) { preview = $0 }
             }.buttonStyle(TransferPrimaryButtonStyle()).disabled(password.isEmpty || !model.walletUnlocked || model.busy)
           }
           Divider()
@@ -67,7 +69,11 @@ struct TransferDataFileView: View {
         if !model.walletUnlocked { Text("Unlock the same Wallet before importing or exporting.").foregroundStyle(.secondary) }
         if let notice { Text(notice).foregroundStyle(.secondary) }
       }.frame(maxWidth: 560, alignment: .leading).frame(maxWidth: .infinity).padding(24)
-    }.onDisappear { password = ""; exportPassword = ""; model.repository?.invalidatePendingWork(); Task { await model.repository?.cancel() } }
+    }.onChange(of: model.walletUnlocked) { unlocked in
+      if !unlocked { preview = nil; model.repository?.invalidatePendingWork(); Task { await model.repository?.cancel() } }
+    }.onChange(of: file) { _ in
+      if preview != nil { preview = nil; model.repository?.invalidatePendingWork(); Task { await model.repository?.cancel() } }
+    }.onDisappear { preview = nil; password = ""; exportPassword = ""; model.repository?.invalidatePendingWork(); Task { await model.repository?.cancel() } }
       .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in password = ""; exportPassword = "" }
   }
 }

@@ -16,8 +16,8 @@ public struct RecoveryFileFormat: Equatable, Sendable {
       return "This older filename contains a v1 recovery backup, not a Castaway data vault. The filename convention is deprecated; the recovery format is still supported. Keep the original and save a new .castalia-recovery backup after restoring."
     }
     return kind == .recovery
-      ? "Restores your signing identity. Enter its password on your phone, then review and confirm."
-      : "Contains encrypted data for a matching wallet. It cannot restore your signing identity. On your phone, open Recovery → Import or save a data file."
+      ? "Restores your signing identity. Enter its password on this device, then review and confirm."
+      : "Contains encrypted data for a matching wallet. It cannot restore your signing identity. On this device, open Recovery → Import or save a data file."
   }
 
   public static func inspect(_ data: Data, filename: String) throws -> Self {

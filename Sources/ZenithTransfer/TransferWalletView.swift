@@ -14,7 +14,7 @@ struct TransferWalletView: View {
   @State private var filePassword = ""
   @State private var selectedFile: Data?
   @State private var selectedName: String?
-  @State private var preview: ImportReview?
+  @State private var preview: WalletImportReview?
   @State private var committing = false
   @State private var mode = "choose"
   @State private var importStep = 1
@@ -112,6 +112,9 @@ struct TransferWalletView: View {
       }.frame(maxWidth: 560, alignment: .leading).frame(maxWidth: .infinity).padding(24)
     }.disabled(model.busy)
       .onDisappear { clear(); model.repository?.invalidatePendingWork(); Task { await model.repository?.cancel() } }
+      .onChange(of: model.walletUnlocked) { unlocked in
+        if !unlocked && preview != nil { preview = nil; model.repository?.invalidatePendingWork(); Task { await model.repository?.cancel() } }
+      }
       .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in clearPasswords() }
       .sheet(isPresented: $choosingRecovery) {
         TransferRecoveryPicker(catalog: model.fileCatalog) { file in
@@ -128,8 +131,7 @@ struct TransferWalletView: View {
           Text("Import · 4 of 4").font(.subheadline).foregroundStyle(.secondary)
           Text("Review your wallet").font(.title2.bold())
           Text("Your backup has been checked. Confirm its public identity before saving this device’s encrypted copy.")
-          Text(value.publicKey).font(.caption.monospaced()).textSelection(.enabled)
-          if let identities = value.walletIdentities { ScrollView { WalletIdentityReviewRows(section: identities) }.frame(maxHeight: 260) }
+          ScrollView { WalletImportReviewContent(review: item) }.frame(maxHeight: 420)
           Text("Importing does not activate memberships or connect service access.").foregroundStyle(.secondary)
           HStack {
             Button("Cancel") { preview = nil; model.repository?.invalidatePendingWork(); Task { await model.repository?.cancel() } }
@@ -202,7 +204,7 @@ struct TransferWalletView: View {
     let old = filePassword; clearPasswords()
     model.error = nil; notice = nil
     model.perform({ try await $0.prepareRestore(file: selectedFile, filePassword: old, password: new) }) {
-      committing = false; preview = ImportReview(preview: $0)
+      committing = false; preview = WalletImportReview(preview: $0, context: .recovery)
     }
   }
   private func readEncryptedFile() -> (Data, String)? {
@@ -261,10 +263,4 @@ struct TransferWalletSheet: View {
   }
 }
 
-// A preview token remains opaque to the renderer and is accepted only by the
-// core's original lifecycle/revision transaction.
-private struct ImportReview: Identifiable {
-  let id = UUID()
-  let preview: RestorePreview
-}
 #endif
