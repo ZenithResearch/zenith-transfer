@@ -97,7 +97,7 @@ extension TransferOperatorBridge {
       let value = consent.flatMap { try? object($0.details) }
       let action = (value?["action"] as? [String: Any])?["action"] as? String
       return ["approve":"Activate this exact access grant?", "deny":"Decline this access request?",
-        "revoke":"Revoke this access grant?"][action ?? ""] ?? "Confirm this access decision?"
+        "revoke":"Revoke this access grant?", "upgrade_arena_policy":"Enable owner Arena administration?", "create_arena":"Create this Arena?"][action ?? ""] ?? "Confirm this access decision?"
     }
   }
   func resolve(_ approved: Bool) {
@@ -125,7 +125,7 @@ extension TransferOperatorBridge {
   private func checkAction(_ action: [String: Any], against original: [String: Any]) throws {
     guard let originalAction = original["action"] as? [String: Any] else { throw WalletFailure.invalidFile }
     if original["dispatched"] as? Bool == true {
-      guard action["action"] as? String == "status",
+      guard ["status", "arena_policy_status", "arena_create_status"].contains(action["action"] as? String ?? ""),
         action["original_action_id"] as? String == originalAction["action_id"] as? String
       else { throw WalletFailure.core("recover_original_action_first") }
     } else {
@@ -248,8 +248,10 @@ extension TransferOperatorBridge {
           let returnedAction = details["action"] as? [String: Any], let requestedAction = input["action"],
           let actionName = returnedAction["action"] as? String,
           challenge["operation"] as? String == ["inbox":"access.inbox","review":"access.review",
-            "approve":"access.decide","deny":"access.decide","revoke":"access.decide","status":"access.status"][actionName],
-          try canonical(returnedAction) == canonical(requestedAction) else { throw WalletFailure.conflict }
+            "approve":"access.decide","deny":"access.decide","revoke":"access.decide","status":"access.status",
+            "upgrade_arena_policy":"access.decide","arena_policy_status":"access.status",
+            "create_arena":"access.decide","arena_create_status":"access.status"][actionName],
+          try NativeOperatorClient.matchesPreparedAction(requestedAction, returnedAction) else { throw WalletFailure.conflict }
         rawChallenge = response.data
       }
       if actionCall {

@@ -39,7 +39,7 @@ struct NativeOperatorInbox {
     requests = try rows.map(NativeGrantRecipient.init)
     guard Set(requests.map(\.id)).count == requests.count else { throw NativeGrantError.invalid }
     self.total = total; self.ceiling = ceiling; self.raw = raw
-    digest = raw["ceiling_digest_sha256"] as! String; permissions = try NativeGrantPermissions(ceiling)
+    digest = raw["ceiling_digest_sha256"] as! String
     if let value = inbox["next_cursor"], !(value is NSNull) {
       guard GrantJSON.hex(value, 32) else { throw NativeGrantError.invalid }; next = value as? String
     } else { next = nil }
@@ -49,6 +49,7 @@ struct NativeOperatorInbox {
       data["scopes"] = raw["scopes"] ?? [[String: Any]](); data["scope_semantics"] = "current_resources_at_access"
       catalog = try WorkAccessCatalog.decode(GrantJSON.data(data), receiver: resource.configuration.authorityOrigin, issuer: resource.configuration.issuer)
     } else { catalog = nil }
+    permissions = try NativeGrantPermissions(ceiling, currentArenaIDs: catalog?.scopes.filter { $0.resource_path.path.count == 1 && $0.resource_path.path[0].hasPrefix("Arena/") }.map { String($0.resource_path.path[0].dropFirst(6)) } ?? [])
   }
   var scopes: [WorkScopeOption] { catalog?.scopes ?? [] }
   func actionSchema(writes: Bool) -> String? {
@@ -102,9 +103,34 @@ struct NativeOperatorInbox {
       value["receiver"] as? String == bridge.resource.configuration.authorityOrigin,
       GrantJSON.equal(value["subject_public_key"], identity["subject_public_key"]),
       GrantJSON.equal(value["installation_id"], identity["installation_id"]),
-      let details = value["details"] as? [String: Any], GrantJSON.equal(details["action"], action),
+      let details = value["details"] as? [String: Any], try Self.matchesPreparedAction(action, details["action"]),
       let expires = GrantJSON.integer(value["expires_at"]), expires > now else { throw NativeGrantError.invalid }
+    if action["schema"] as? String == "devgraph.access-operator-action.v10",
+      action["action"] as? String == "upgrade_arena_policy",
+      let full = (value["details"] as? [String:Any])?["action"] as? [String:Any] {
+      guard full["selected_receiver"] as? String == bridge.resource.configuration.authorityOrigin else { throw NativeGrantError.changed }
+      if let service = bridge.resource.configuration.serviceID {
+        guard service == "devgraph:" + (full["resource_id"] as? String ?? "") else { throw NativeGrantError.changed }
+      }
+    }
     return value
+  }
+  static func matchesPreparedAction(_ requested: Any, _ returned: Any?) throws -> Bool {
+    guard let a = requested as? [String: Any], let b = returned as? [String: Any] else { return false }
+    if a["schema"] as? String == "devgraph.access-operator-action.v10",
+      a["action"] as? String == "upgrade_arena_policy", a["proposal_digest_sha256"] == nil {
+      guard Set(a.keys) == ["schema","action","action_id","expected_policy_digest_sha256","arena_read_ids","arena_scope","create_arenas"],
+        GrantJSON.equal(a["schema"], b["schema"]), GrantJSON.equal(a["action"], b["action"]),
+        GrantJSON.equal(a["action_id"], b["action_id"]), GrantJSON.equal(a["arena_read_ids"], b["arena_read_ids"]),
+        GrantJSON.equal(a["arena_scope"], b["arena_scope"]), GrantJSON.equal(a["create_arenas"], b["create_arenas"]),
+        GrantJSON.equal(a["expected_policy_digest_sha256"], b["previous_selected_policy_digest_sha256"]),
+        GrantJSON.hex(b["proposal_digest_sha256"],64), GrantJSON.hex(b["owner_grant_id"],64),
+        GrantJSON.hex(b["new_primary_policy_digest_sha256"],64), b["resource_id"] is String,
+        b["affected_receivers"] is [String],
+        Set(b.keys) == ["schema","action","action_id","resource_id","owner_grant_id","primary_receiver","selected_receiver","affected_receivers","previous_primary_policy_digest_sha256","previous_selected_policy_digest_sha256","new_primary_policy_digest_sha256","arena_read_ids","proposal_digest_sha256","arena_scope","create_arenas"] else { return false }
+      return true
+    }
+    return GrantJSON.equal(a,b)
   }
   static func assignmentDigest(_ action: [String: Any]) throws -> Any {
     let schema = action["schema"] as? String ?? "", s = action["selection"] as? [String: Any] ?? [:]
@@ -121,6 +147,8 @@ struct NativeOperatorInbox {
     action["action_id"] = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     if action["schema"] == nil { action["schema"] = "devgraph.access-operator-action.v1" }
     let challenge = try await obtain(action, identity: identity)
+    if action["schema"] as? String == "devgraph.access-operator-action.v10",
+      let full = (challenge["details"] as? [String: Any])?["action"] as? [String: Any] { action = full }
     let record: [String: Any] = ["schema": "devgraph.operator-pending.v1", "origin": bridge.resource.configuration.authorityOrigin, "identity": identity,
       "action": action, "assignment_digest": try Self.assignmentDigest(action), "dispatched": false]
     _ = try await bridge.invokeNative("save", ["record": String(decoding: try GrantJSON.data(record), as: UTF8.self)])
@@ -143,7 +171,9 @@ struct NativeOperatorInbox {
     guard state == .unknown, let originalAction = original?["action"] as? [String: Any], let originalID = originalAction["action_id"] as? String else { throw NativeGrantError.recovery }
     let identity = try await identity()
     guard GrantJSON.equal(identity, original?["identity"]) else { throw NativeGrantError.changed }
-    let action: [String: Any] = ["schema": "devgraph.access-operator-action.v1", "action": "status", "original_action_id": originalID,
+    let ownerUpgrade = originalAction["action"] as? String == "upgrade_arena_policy"
+    let ownerCreate = originalAction["action"] as? String == "create_arena"
+    let action: [String: Any] = ["schema": ownerUpgrade ? "devgraph.access-operator-action.v10" : ownerCreate ? "devgraph.access-operator-action.v11" : "devgraph.access-operator-action.v1", "action": ownerUpgrade ? "arena_policy_status" : ownerCreate ? "arena_create_status" : "status", "original_action_id": originalID,
       "action_id": UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()]
     let challenge = try await obtain(action, identity: identity)
     recoveryAction = action; self.challenge = challenge; state = .prepared
@@ -218,6 +248,16 @@ struct NativeOperatorInbox {
         guard sameRequest, result["status"] as? String == "active", GrantJSON.bool(activation["active"]) == true,
           GrantJSON.bool(activation["credential_issued"]) == false, GrantJSON.equal(activation["assignment_digest"], digest) else { throw NativeGrantError.recovery }
       }
+    case "create_arena":
+      guard let request = action["request"] as? [String:Any], result["status"] as? String == "created",
+        GrantJSON.equal(result["arena_id"], request["id"]), result["receipt_id"] is String,
+        GrantJSON.hex(result["request_digest_sha256"],64) else { throw NativeGrantError.recovery }
+    case "upgrade_arena_policy":
+      if result["status"] as? String == "not_applied", GrantJSON.bool(result["applied"]) == false, GrantJSON.bool(result["member_grants_changed"]) == false { return result }
+      guard result["status"] as? String == "active", GrantJSON.bool(result["applied"]) == true,
+        GrantJSON.bool(result["member_grants_changed"]) == false,
+        GrantJSON.equal(result["arena_read_ids"], action["arena_read_ids"]),
+        GrantJSON.equal(result["proposal_digest_sha256"], action["proposal_digest_sha256"]) else { throw NativeGrantError.recovery }
     case "deny":
       guard GrantJSON.equal(result["request_id"], action["request_id"]), result["status"] as? String == "denied", GrantJSON.integer(result["version"]) == 2 else { throw NativeGrantError.recovery }
     case "revoke":

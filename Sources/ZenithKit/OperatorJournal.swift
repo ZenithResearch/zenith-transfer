@@ -22,9 +22,11 @@ public final class OperatorJournal {
       identity["installation_id"]?.range(of: "^[a-f0-9]{32}$", options: .regularExpression) != nil,
       let action = p["action"] as? [String: Any],
       (action["action_id"] as? String)?.range(of: "^[a-f0-9]{32}$", options: .regularExpression) != nil,
-      ["inbox","review","approve","deny","revoke"].contains(action["action"] as? String ?? ""),
-      (1...7).contains(Int((action["schema"] as? String ?? "").split(separator: ".").last?.dropFirst() ?? "") ?? 0),
+      ["inbox","review","approve","deny","revoke","upgrade_arena_policy","create_arena"].contains(action["action"] as? String ?? ""),
+      (1...11).contains(Int((action["schema"] as? String ?? "").split(separator: ".").last?.dropFirst() ?? "") ?? 0),
       (action["schema"] as? String)?.hasPrefix("devgraph.access-operator-action.v") == true,
+      (action["action"] as? String == "upgrade_arena_policy") == (action["schema"] as? String == "devgraph.access-operator-action.v10"),
+      (action["action"] as? String == "create_arena") == (action["schema"] as? String == "devgraph.access-operator-action.v11"),
       p["dispatched"] is Bool,
       p["assignment_digest"] is NSNull || (p["assignment_digest"] as? String)?.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
     else { throw WalletFailure.core("invalid_operator_recovery") }

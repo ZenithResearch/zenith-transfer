@@ -78,6 +78,65 @@ final class NativeOperatorClientTests: XCTestCase {
     let untrusted = NativeOperatorServerError(status: 400, code: "private arbitrary server text")
     XCTAssertFalse(untrusted.errorDescription!.contains("private arbitrary server text"))
   }
+  @MainActor func testOwnerArenaReviewPersistsExpandedSelectionAndRecoversOriginalApply() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (repo, resource, _) = try await fixture(root)
+    let journals = root.appendingPathComponent("actions")
+    var applied: [String: Any]?
+    let rpc: (String, Data) async throws -> PrivateHTTPResponse = { operation, bytes in
+      let input = try GrantJSON.object(bytes)
+      var output: [String: Any]
+      if operation == "challenge" {
+        var request = input
+        var action = request["action"] as! [String: Any]
+        if action["action"] as? String == "upgrade_arena_policy", action["proposal_digest_sha256"] == nil {
+          action["previous_selected_policy_digest_sha256"] = action.removeValue(forKey:"expected_policy_digest_sha256")
+          action["proposal_digest_sha256"] = String(repeating:"a",count:64)
+          action["owner_grant_id"] = String(repeating:"b",count:64)
+          action["new_primary_policy_digest_sha256"] = String(repeating:"c",count:64)
+          action["resource_id"] = "fixture-resource"
+          action["primary_receiver"] = resource.id
+          action["selected_receiver"] = resource.id
+          action["previous_primary_policy_digest_sha256"] = String(repeating:"e",count:64)
+          action["affected_receivers"] = [resource.id]
+        }
+        request["action"] = action
+        output = self.challenge(request)
+        if action["action"] as? String == "arena_policy_status" { output["operation"] = "access.status" }
+      } else {
+        let ch = input["challenge"] as! [String: Any]
+        let action = (ch["details"] as! [String: Any])["action"] as! [String: Any]
+        if action["action"] as? String == "arena_policy_status" {
+          output = ["schema":"devgraph.access-operator-result.v2", "action_id":action["action_id"]!,
+            "original_action_id":action["original_action_id"]!, "authority_issued":false,
+            "status":"reconciled", "result":applied!]
+        } else {
+          applied = ["schema":"devgraph.access-operator-result.v2", "action_id":action["action_id"]!,
+            "authority_issued":false,"status":"active","applied":true,"member_grants_changed":false,
+            "arena_read_ids":action["arena_read_ids"]!, "proposal_digest_sha256":action["proposal_digest_sha256"]!]
+          output = [:] // Corrupt/lost response after the original signed apply.
+        }
+      }
+      return PrivateHTTPResponse(status:200,data:try GrantJSON.data(output))
+    }
+    var bridge = TransferOperatorBridge(resource:resource, repository:repo, journalDirectory:journals, rpcExchange:rpc)
+    var client = try NativeOperatorClient(bridge:bridge)
+    try await client.prepare(["schema":"devgraph.access-operator-action.v10", "action":"upgrade_arena_policy",
+      "expected_policy_digest_sha256":String(repeating:"d",count:64), "arena_read_ids":["research"], "arena_scope":"all_current_and_future", "create_arenas":true])
+    XCTAssertNotNil(client.action?["proposal_digest_sha256"])
+    do { _ = try await consent(client, operation:"access.decide"); XCTFail("Unknown result must retain the action") } catch {}
+    XCTAssertEqual(client.state,.unknown)
+    bridge.cancel()
+    bridge = TransferOperatorBridge(resource:resource, repository:repo, journalDirectory:journals, rpcExchange:rpc)
+    defer { bridge.cancel() }
+    client = try NativeOperatorClient(bridge:bridge)
+    try await client.prepareRecovery()
+    let result = try await consent(client, operation:"access.status")
+    XCTAssertEqual(result["applied"] as? Bool,true)
+    XCTAssertEqual(client.state,.idle)
+    XCTAssertNil(try bridge.retainedNativeAction())
+  }
   @MainActor private func exerciseInboxRecovery(localRPC: Bool) async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root); NativeOperatorResponse.handler = nil }

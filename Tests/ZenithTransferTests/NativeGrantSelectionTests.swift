@@ -9,6 +9,26 @@ final class NativeGrantSelectionTests: XCTestCase {
     let url = try XCTUnwrap(Bundle.module.url(forResource: "native-grants", withExtension: "json", subdirectory: "Fixtures"))
     return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [[String: Any]])
   }
+  func testAllArenaOwnerCeilingProducesOnlyExplicitMemberIDs() throws {
+    let f = try fixtures()[0]
+    var ceiling = f["ceiling"] as! [String:Any]
+    ceiling["schema"] = "devgraph.access-draft.v7"
+    ceiling.removeValue(forKey:"not_before"); ceiling.removeValue(forKey:"not_after")
+    ceiling["validity"] = ["schema":"castalia.grant-validity.v1","mode":"until_revoked","not_before":1]
+    var reads = ceiling["read_grants"] as! [[String:Any]]
+    reads.append(["scope":"devgraph.arena.read","all_arenas":true]); ceiling["read_grants"] = reads
+    let path = try WorkResourcePath(path:["Arena/future-arena"])
+    let scopes = [WorkScopeOption(resource_path:path,resource:"Arena/future-arena",title:"Future Arena",parent:nil)]
+    var choice = NativeGrantChoice(); choice.wholeGraph = true; choice.untilRevoked = true; choice.arenaIDs = ["future-arena"]
+    let result = try NativeGrantSelection.make(ceiling:ceiling,ceilingDigest:try GrantJSON.digest(ceiling),recipient:NativeGrantRecipient(f["recipient"] as! [String:Any]),choice:choice,scopes:scopes,now:f["now"] as! Int)
+    let read = result["read"] as! [String:Any]
+    XCTAssertEqual(read["schema"] as? String,"devgraph.access-draft.v6")
+    let granted = (read["read_grants"] as! [[String:Any]])[0]
+    XCTAssertEqual(granted["arena_ids"] as? [String],["future-arena"])
+    XCTAssertNil(granted["all_arenas"])
+    choice.arenaIDs = ["not-shared-in-catalog"]
+    XCTAssertThrowsError(try NativeGrantSelection.make(ceiling:ceiling,ceilingDigest:try GrantJSON.digest(ceiling),recipient:NativeGrantRecipient(f["recipient"] as! [String:Any]),choice:choice,scopes:scopes,now:f["now"] as! Int))
+  }
   func testSelectionsMatchEstablishedProducerWithoutCombiningRuleAuthority() throws {
     for item in try fixtures() {
       let paths = try JSONDecoder().decode([WorkResourcePath].self, from: GrantJSON.data(item["paths"]!))

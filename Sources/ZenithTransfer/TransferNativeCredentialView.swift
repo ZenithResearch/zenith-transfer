@@ -25,7 +25,7 @@ import ZenithKit
     catch { self.error = "The original action could not be read safely. Its record is preserved." }
   }
   var preparedName: String { client?.action?["action"] as? String ?? "action" }
-  var isRecovery: Bool { client?.action?["action"] as? String == "status" }
+  var isRecovery: Bool { client?.action?["action"] as? String == "status" || client?.action?["action"] as? String == "arena_policy_status" || client?.action?["action"] as? String == "arena_create_status" }
   var expiry: Date? { GrantJSON.integer(client?.challenge?["expires_at"]).map { Date(timeIntervalSince1970: Double($0)) } }
   func run(_ operation: @escaping () async throws -> Void) {
     guard !busy else { return }; busy = true; error = nil
@@ -48,6 +48,30 @@ import ZenithKit
       if let after { action["after_id"] = after }
       try await client.prepare(action); state = client.state
       let result = try await client.confirm(); try accept(result)
+    }
+  }
+  func enableArenaSharing(_ identifiers: Set<String>) {
+    run { [self] in
+      guard let info = inbox?.raw["owner_arena_upgrade"] as? [String: Any],
+        info["enabled"] as? Bool == false, let digest = info["policy_digest_sha256"] as? String,
+        !identifiers.isEmpty, let client else { throw NativeGrantError.invalid }
+      try await client.prepare(["schema":"devgraph.access-operator-action.v10", "action":"upgrade_arena_policy",
+        "expected_policy_digest_sha256":digest, "arena_read_ids":identifiers.sorted(),
+        "arena_scope":"all_current_and_future", "create_arenas":true])
+      state = client.state
+      try accept(await client.confirm())
+    }
+  }
+  func createArena(id: String, title: String, description: String) {
+    run { [self] in
+      guard let info = inbox?.raw["owner_arena_upgrade"] as? [String:Any], info["create_arenas"] as? Bool == true,
+        let digest = info["policy_digest_sha256"] as? String, let client,
+        id.range(of:"^[a-z0-9][a-z0-9-]{0,255}$",options:.regularExpression) != nil,
+        !title.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else { throw NativeGrantError.invalid }
+      try await client.prepare(["schema":"devgraph.access-operator-action.v11", "action":"create_arena",
+        "expected_policy_digest_sha256":digest, "request":["schema":"devgraph.arena-request.v1", "operation":"create",
+          "kind":"Arena","id":id,"expected_version":NSNull(),"payload":["id":id,"title":title,"description":description]]])
+      state = client.state; try accept(await client.confirm())
     }
   }
   func select(_ item: NativeGrantRecipient) {
@@ -180,7 +204,11 @@ import ZenithKit
     } else {
       let status = result["status"] as? String ?? ""
       switch status {
+      case "active" where result["member_grants_changed"] as? Bool == false:
+        self.status = "Arena sharing enabled for the reviewed records. Existing member grants are unchanged. Reload the inbox to select a recipient and grant Arena access."
       case "active": self.status = "Grant activated. The recipient can obtain and reuse access while it remains valid."
+      case "not_applied": self.status = "The original owner upgrade was closed without applying. Reload the inbox before preparing a new review."
+      case "created": self.status = "Arena created. Reload the inbox to share it through an explicit recipient credential."
       case "revoked": self.status = "Grant revoked. Further access under it is denied."
       case "denied": self.status = "Request declined. No access was granted."
       default: self.status = "Decision recorded. Server activation is still required; no active credential is claimed."
@@ -242,6 +270,9 @@ struct ResolvedTransferOperatorView: View {
   @ObservedObject private var library: TransferPresetLibrary
   @State private var unlocking = false
   @State private var creatingPreset = false
+  @State private var newArenaID = ""
+  @State private var newArenaTitle = ""
+  @State private var newArenaDescription = ""
   @Environment(\.dismiss) private var dismiss
   private let onRecoveredLegacyAction: () -> Void
   init(resource: RegisteredResource, repository: any WalletSession, walletModel: TransferModel,
@@ -279,6 +310,12 @@ struct ResolvedTransferOperatorView: View {
           if editor.state != .idle {
             pendingAction
           } else if let inbox = editor.inbox {
+            if let info = inbox.raw["owner_arena_upgrade"] as? [String: Any], info["enabled"] as? Bool == false {
+              ownerArenaSetup(inbox)
+            }
+            if let info = inbox.raw["owner_arena_upgrade"] as? [String:Any], info["create_arenas"] as? Bool == true {
+              createArenaForm
+            }
             requestList(inbox)
             if let selected = editor.selected { credentialEditor(selected, inbox: inbox) }
             else { activeGrants(inbox) }
@@ -322,6 +359,28 @@ struct ResolvedTransferOperatorView: View {
         if editor.state == .prepared && !editor.isRecovery { Button("Cancel unsigned action") { editor.cancelPrepared() }.disabled(editor.busy) }
       }
     }.padding(18).background(Color.primary.opacity(0.04)).cornerRadius(12)
+  }
+  private var createArenaForm: some View {
+    DisclosureGroup("Create Arena") {
+      VStack(alignment:.leading,spacing:12) {
+        TextField("Arena name",text:$newArenaTitle)
+        TextField("Stable ID, for example product-research",text:$newArenaID)
+        TextField("Description",text:$newArenaDescription)
+        Text("Your owner Wallet signs this exact creation. It creates no member credential and grants no one access.").font(.caption).foregroundStyle(.secondary)
+        Button("Review Arena creation in Wallet") { editor.createArena(id:newArenaID,title:newArenaTitle,description:newArenaDescription) }
+          .buttonStyle(TransferPrimaryButtonStyle()).disabled(!editing || !unlocked || newArenaID.isEmpty || newArenaTitle.isEmpty)
+      }.padding(.vertical,8)
+    }
+  }
+  private func ownerArenaSetup(_ inbox: NativeOperatorInbox) -> some View {
+    GroupBox("Enable Arena sharing") {
+      VStack(alignment: .leading, spacing: 12) {
+        Text("Enable owner administration for every current and future Arena, including creating Arenas. Recipient credentials still require an explicit permission and scope selection.").foregroundStyle(.secondary)
+        Text("Restarts only this graph’s existing Wallet services. Existing member grants and Work rules are unchanged. Onward delegation remains disabled.").font(.caption).foregroundStyle(.secondary)
+        Button("Review Arena sharing in Wallet") { editor.enableArenaSharing(Set(inbox.scopes.filter { $0.resource_path.path.count == 1 && $0.resource_path.path[0].hasPrefix("Arena/") }.map { String($0.resource_path.path[0].dropFirst(6)) })) }
+          .buttonStyle(TransferPrimaryButtonStyle()).disabled(!editing || !unlocked)
+      }.padding(8)
+    }
   }
   private func requestList(_ inbox: NativeOperatorInbox) -> some View {
     VStack(alignment: .leading, spacing: 12) {

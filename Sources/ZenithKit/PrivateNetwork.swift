@@ -59,12 +59,14 @@ public protocol PrivateNetworkDriver: Sendable {
   func hasStoredState() async throws -> Bool
   func enroll(authKey: String) async throws
   func status() async throws -> PrivateNetworkStatus
+  func serverCandidates() async throws -> [URL]
   func configuration() async throws -> URLSessionConfiguration
   func stop() async
 }
 
 /// Older drivers fail closed rather than silently starting browser sign-in.
 public extension PrivateNetworkDriver {
+  func serverCandidates() async throws -> [URL] { [] }
   func hasStoredState() async throws -> Bool { false }
   func enroll(authKey: String) async throws { throw PrivateNetworkError.enrollmentFailed }
 }
@@ -200,6 +202,15 @@ public final class PrivateNetworkSession: ObservableObject {
     transports.removeAll { $0.value == nil }
     transports.append(WeakTransport(value: transport))
     return transport
+  }
+  public func discoverWorkServers() async throws -> [WorkAccessConfiguration] {
+    guard phase == .connected else { throw PrivateNetworkError.disconnected }
+    let ticket = generation
+    let candidates = try await driver.serverCandidates()
+    guard ticket == generation, phase == .connected else { throw PrivateNetworkError.interrupted }
+    let found = try await TailnetServerDiscovery.scan(candidates, transport: transport(requestTimeout: 3, resourceTimeout: 5))
+    guard ticket == generation, phase == .connected else { throw PrivateNetworkError.interrupted }
+    return found
   }
   private func invalidate() {
     _ = enrollmentInput?.take()
