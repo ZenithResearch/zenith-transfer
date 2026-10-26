@@ -22,3 +22,6 @@ Saved connection settings retain the chosen transport and certificate. The new
 public binding is optional and old settings decode unchanged. Source builds and
 synthetic tests do not establish installed-provider authority or real-device
 qualification; production opt-in and a real Wallet are still required.
+
+After confirmed legacy recovery, the editor renegotiates the current service
+before a new action. A stored route binding cannot relabel an original journal.

@@ -143,11 +143,13 @@ final class NativeOperatorClientTests: XCTestCase {
     bridge = TransferOperatorBridge(resource:resource,repository:repo,transport:localRPC ? nil : transport,journalDirectory:journals,rpcExchange:rpc)
     client = try NativeOperatorClient(bridge:bridge)
     XCTAssertEqual(client.state,.unknown)
+    XCTAssertFalse(bridge.legacyRecoveryCompleted)
     try await client.prepareRecovery()
     let recovered = try await consent(client,operation:"access.status")
     XCTAssertEqual(recovered["status"] as? String,"active")
     XCTAssertEqual(decisions,1,"Status recovery never replays activation")
     XCTAssertEqual(actions,4); XCTAssertEqual(client.state,.idle); XCTAssertNil(try journal.load())
+    XCTAssertTrue(bridge.legacyRecoveryCompleted,"Only confirmed original-result recovery permits canonical renegotiation")
   }
   @MainActor func testNetworkPreparationUsesEachSelectedOriginAndIssuer() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

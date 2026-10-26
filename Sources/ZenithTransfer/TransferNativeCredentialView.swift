@@ -196,11 +196,16 @@ struct TransferOperatorView: View {
   let repository: any WalletSession
   @ObservedObject var walletModel: TransferModel
   @State private var resolved: RegisteredResource?
+  @State private var resolutionGeneration = 0
   @State private var error: String?
   @Environment(\.dismiss) private var dismiss
   var body: some View {
     Group {
-      if let resolved { ResolvedTransferOperatorView(resource: resolved, repository: repository, walletModel: walletModel) }
+      if let resolved {
+        ResolvedTransferOperatorView(resource: resolved, repository: repository, walletModel: walletModel) {
+          self.resolved = nil; error = nil; resolutionGeneration += 1
+        }
+      }
       else {
         VStack(spacing: 20) {
           if let error { Text(error).foregroundStyle(.red) }
@@ -208,11 +213,14 @@ struct TransferOperatorView: View {
           Button("Close") { dismiss() }
         }.padding(32).frame(minWidth: 700, minHeight: 420)
       }
-    }.task(id: resource.id) {
+    }.task(id: resource.id + ":" + String(resolutionGeneration)) {
       do {
         let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let journal = try OperatorJournal(directory: root.appendingPathComponent("ZenithTransfer/OperatorActions"), origin: resource.id)
-        if try journal.load() != nil { resolved = resource; return }
+        if try journal.load() != nil {
+          resolved = try RegisteredResource(configuration: resource.configuration.withServiceAccessPoint(nil))
+          return
+        }
         let config = resource.configuration
         let transport = try config.network == .tailscale ? HostTailscaleConnection().transport() : PrivateTransport(workServer: config)
         let updated = try await config.resolveService(transport: transport)
@@ -234,7 +242,10 @@ struct ResolvedTransferOperatorView: View {
   @State private var unlocking = false
   @State private var creatingPreset = false
   @Environment(\.dismiss) private var dismiss
-  init(resource: RegisteredResource, repository: any WalletSession, walletModel: TransferModel) {
+  private let onRecoveredLegacyAction: () -> Void
+  init(resource: RegisteredResource, repository: any WalletSession, walletModel: TransferModel,
+       onRecoveredLegacyAction: @escaping () -> Void = {}) {
+    self.onRecoveredLegacyAction = onRecoveredLegacyAction
     self.walletModel = walletModel; library = walletModel.presetLibrary
     let bridge = TransferOperatorBridge(resource: resource, repository: repository)
     _bridge = StateObject(wrappedValue: bridge); _editor = StateObject(wrappedValue: NativeCredentialModel(bridge: bridge))
@@ -274,6 +285,9 @@ struct ResolvedTransferOperatorView: View {
         }.padding(24).frame(maxWidth: 940, alignment: .leading).frame(maxWidth: .infinity)
       }
     }.frame(minWidth: 980, minHeight: 720)
+      .onChange(of: bridge.legacyRecoveryCompleted) { completed in
+        if completed { bridge.cancel(); onRecoveredLegacyAction() }
+      }
       .onChange(of: walletModel.walletUnlocked) { value in if !value { bridge.resolve(false) } }
       .onChange(of: editor.choice) { _ in if editor.state == .idle { editor.review = nil } }
       .sheet(isPresented: $unlocking) {

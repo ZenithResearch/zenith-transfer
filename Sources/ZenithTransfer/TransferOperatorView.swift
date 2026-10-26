@@ -29,6 +29,8 @@ extension TransferOperatorBridge {
   weak var webView: WKWebView?
   @Published var consent: OperatorConsent?
   @Published var failure: String?
+  @Published private(set) var legacyRecoveryCompleted = false
+  private var recoveringLegacyAction = false
   private var transport: PrivateTransport?
   private var localRPC: LocalAdminRPC?
   private var rpcExchange: ((String, Data) async throws -> PrivateHTTPResponse)?
@@ -67,7 +69,7 @@ extension TransferOperatorBridge {
       let root = try FileManager.default.url(for: .applicationSupportDirectory,
         in: .userDomainMask, appropriateFor: nil, create: true)
       journal = try OperatorJournal(directory: journalDirectory ?? root.appendingPathComponent("ZenithTransfer/OperatorActions"), origin: resource.configuration.authorityOrigin)
-      _ = try journal?.load()
+      recoveringLegacyAction = try journal?.load() != nil && resource.configuration.serviceID == nil
     } catch { failure = "Could not open this resource securely. Check its saved connection and recovery settings." }
   }
   var bootstrap: String {
@@ -182,7 +184,11 @@ extension TransferOperatorBridge {
         guard clearAllowed || unsigned else { throw WalletFailure.core("recover_original_action_first") }
         try journal.clear(matching: old)
       }
-      clearAllowed = false; return true
+      clearAllowed = false
+      if recoveringLegacyAction {
+        recoveringLegacyAction = false; legacyRecoveryCompleted = true
+      }
+      return true
     case "approve":
       guard continuation == nil, let text = args["challenge"] as? String, let rawChallenge,
         try canonical(object(Data(text.utf8))) == canonical(object(rawChallenge)),
