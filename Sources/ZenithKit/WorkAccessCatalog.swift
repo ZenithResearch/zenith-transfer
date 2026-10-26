@@ -130,9 +130,9 @@ public struct WorkAccessPreference: Codable, Sendable, Equatable {
 }
 public extension DevgraphReadClient {
   func accessCatalog() async throws -> WorkAccessCatalog {
-    let request = URLRequest(url: URL(string: configuration.origin + "/devgraph/access-requests/v2/catalog")!)
+    let request = URLRequest(url: try configuration.apiURL("/devgraph/access-requests/v2/catalog"))
     let data = try await transport.request(request, maximum: 262_144)
-    return try WorkAccessCatalog.decode(data, receiver: configuration.origin, issuer: configuration.issuer)
+    return try WorkAccessCatalog.decode(data, receiver: configuration.authorityOrigin, issuer: configuration.issuer)
   }
 }
 

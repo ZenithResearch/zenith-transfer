@@ -1,4 +1,5 @@
 import Foundation
+import ZenithKit
 
 /// Invalidated immediately by the UI, even while expensive Rust work is running.
 /// Only the short storage transaction holds this lock; cryptography never does.

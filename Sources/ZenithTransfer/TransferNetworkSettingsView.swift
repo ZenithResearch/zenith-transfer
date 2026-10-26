@@ -20,6 +20,8 @@ struct TransferNetworkSettingsView: View {
   @State private var problem: String?
   @State private var review: NetworkSetupReview?
   @State private var creatingKey = false
+  @State private var generatingKey = false
+  @State private var managingAPITokens = false
   @State private var createdFile: URL?
   @State private var operation: Task<Void, Never>?
 
@@ -39,6 +41,8 @@ struct TransferNetworkSettingsView: View {
     .task { if automaticallyDiscover { await refresh() } }
     .onDisappear { operation?.cancel() }
     .sheet(item: $review) { item in reviewSheet(item) }
+    .sheet(isPresented: $generatingKey) { TransferTailscaleKeyGeneratorView() }
+    .sheet(isPresented: $managingAPITokens) { TransferTailscaleAPITokensView() }
     .sheet(isPresented: $creatingKey, onDismiss: {
       guard let url = createdFile else { return }; createdFile = nil
       do { try reloadFiles(); offer(try ConnectionFileReview.read(url, as: .tailscale)) }
@@ -54,31 +58,40 @@ struct TransferNetworkSettingsView: View {
       VStack(alignment: .leading, spacing: 12) {
         Label(network?.phase == .connected ? "This Mac is connected" : network?.phase == .awaitingApproval ? "Waiting for device approval" : "Connect this Mac to your private network", systemImage: network?.phase == .connected ? "checkmark.shield" : "network")
         if let name = network?.networkName { Text(name).font(.callout).textSelection(.enabled) }
-        HStack {
-          Button("Open Tailscale") { openTailscale() }
-          Link("Install Tailscale", destination: URL(string: "https://tailscale.com/download/mac")!)
-          Button(checking ? "Checking…" : "Refresh status") { operation = Task { await refresh() } }.disabled(checking || enrolling)
-        }
         if network?.phase == .connected {
-          Text("DevGraph and Transfer can use this Mac’s existing connection. Closing Transfer does not stop Tailscale.").foregroundStyle(.secondary)
+          Text("DevGraph and Transfer use this Mac’s existing connection. No new enrollment key is needed. Closing Transfer does not stop Tailscale.").foregroundStyle(.secondary)
         } else {
-          Text("Sign in through Tailscale, or use an enrollment file supplied by your network administrator.").foregroundStyle(.secondary)
+          Text("Connect using a one-time auth key from your network administrator. Use a separate key for each device; browser sign-in remains available in Tailscale.").foregroundStyle(.secondary)
         }
         ForEach(files.filter { $0.kind == .tailscale }) { file in
           HStack { Label(file.file.lastPathComponent, systemImage: "doc.badge.lock").lineLimit(2); Spacer(); Button("Review file") { offer(file) } }
         }
         HStack {
-          Button("Choose Tailscale connection file…") { choose(.tailscale) }
-          Button("Create connection file…") { creatingKey = true }
+          Button("Generate auth key…") { generatingKey = true }.buttonStyle(TransferPrimaryButtonStyle())
+          Link("Generate in Tailscale console", destination: URL(string: "https://login.tailscale.com/admin/settings/keys")!)
         }.disabled(enrolling)
-        DisclosureGroup("How to get a Tailscale connection file") {
+        Text("Generate a new key for Zenith on another device. A file is optional.").font(.footnote).foregroundStyle(.secondary)
+        Button("API access tokens…") { managingAPITokens = true }
+        Text("Save and manage API tokens in this Mac’s Keychain for key generation. Separate from enrollment keys and Wallet backups.").font(.footnote).foregroundStyle(.secondary)
+        DisclosureGroup("Use an existing auth key") {
+          HStack {
+            Button("Choose auth-key file…") { choose(.tailscale) }
+            Button("Save an existing key to a file…") { creatingKey = true }
+          }.disabled(enrolling).padding(.top, 6)
+        }
+        DisclosureGroup("How to get a Tailscale auth-key file") {
           VStack(alignment: .leading, spacing: 8) {
             Text("If someone else manages the network, ask them for a one-time, non-ephemeral Tailscale auth-key file. It is a small text file containing only the enrollment key.")
-            Text("If you manage the network: open Tailscale’s Keys page, select Generate auth key, leave Reusable and Ephemeral off, and generate the key. Then choose Create connection file here and paste it into the protected field. You do not need Terminal or an assistant.")
+            Text("If you manage the network: open Tailscale’s Keys page, select Generate auth key, leave Reusable and Ephemeral off, and leave Tags unset for a personal device. Keep device approval enabled if your network uses it. Then choose Create auth-key file here and paste the key into the protected field. Each device needs a different one-time key.")
             Link("Open Tailscale Keys", destination: URL(string: "https://login.tailscale.com/admin/settings/keys")!)
             Text("Choose the saved file, review it, then select Connect this Mac. Your administrator may still need to approve this device. Keep the file private; an expired or already-used key must be replaced by the administrator.")
             Link("Tailscale auth-key instructions", destination: URL(string: "https://tailscale.com/docs/features/access-control/auth-keys")!)
           }.font(.callout).padding(.top, 6)
+        }
+        HStack {
+          Button("Open Tailscale / browser sign-in") { openTailscale() }
+          Link("Install Tailscale", destination: URL(string: "https://tailscale.com/download/mac")!)
+          Button(checking ? "Checking…" : "Refresh status") { operation = Task { await refresh() } }.disabled(checking || enrolling)
         }
         if network?.phase == .awaitingApproval {
           Link("Open device approvals", destination: URL(string: "https://login.tailscale.com/admin/machines")!)
@@ -271,8 +284,8 @@ private struct TailscaleConnectionFileCreator: View {
   @State private var error: String?
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
-      HStack { Text("Create Tailscale connection file").font(.title2.bold()); Spacer(); Button("Close") { key = ""; dismiss() }.keyboardShortcut(.cancelAction) }
-      Text("Paste a one-time auth key from your Tailscale administrator. This saves a private text file; it does not connect until you review and choose Connect this Mac.")
+      HStack { Text("Create Tailscale auth-key file").font(.title2.bold()); Spacer(); Button("Close") { key = ""; dismiss() }.keyboardShortcut(.cancelAction) }
+      Text("Paste a one-time, non-ephemeral auth key from your Tailscale administrator. Use a separate key for every device. This saves a private text file; it does not connect until you review and choose Connect this Mac.")
       SecureField("Tailscale auth key", text: $key).privacySensitive()
       Button("Save connection file…") {
         let panel = NSSavePanel(); panel.directoryURL = directory; panel.nameFieldStringValue = "Tailscale connection.tailscale-key"

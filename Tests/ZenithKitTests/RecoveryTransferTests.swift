@@ -1,3 +1,4 @@
+@testable import CastaliaCustody
 import Foundation
 import Vision
 import XCTest

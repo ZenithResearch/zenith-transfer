@@ -46,6 +46,8 @@ private func interceptedConfiguration() -> URLSessionConfiguration {
 /// Gates deliberately ignore cancellation to exercise late driver completions.
 private actor FakePrivateNetworkDriver: PrivateNetworkDriver {
   private var current: PrivateNetworkStatus
+  private var storedState: Bool
+  private var failStoredState = false
   private(set) var starts: [Bool] = []
   private(set) var enrollments = 0
   private(set) var submittedKey: String?
@@ -53,12 +55,31 @@ private actor FakePrivateNetworkDriver: PrivateNetworkDriver {
   private(set) var stops = 0
   private(set) var statusCalls = 0
   private(set) var configurationCalls = 0
+  private var holdStoredState = false
+  private var pendingStoredState: CheckedContinuation<Bool, Never>?
   private var holdStatus = false
   private var holdConfiguration = false
   private var pendingStatus: CheckedContinuation<PrivateNetworkStatus, Never>?
   private var pendingConfiguration: CheckedContinuation<URLSessionConfiguration, Never>?
 
-  init(status: PrivateNetworkStatus) { current = status }
+  init(status: PrivateNetworkStatus, storedState: Bool = false) { current = status; self.storedState = storedState }
+  func hasStoredState() async throws -> Bool {
+    if failStoredState { throw PrivateNetworkError.interrupted }
+    if holdStoredState {
+      holdStoredState = false
+      return await withCheckedContinuation { pendingStoredState = $0 }
+    }
+    return storedState
+  }
+  func setStoredStateFailure(_ fail: Bool) { failStoredState = fail }
+  func transition(_ status: PrivateNetworkStatus) { current = status }
+  func markStoredState() { storedState = true }
+  func pauseStoredStateProbe() { holdStoredState = true }
+  var storedStateIsPending: Bool { pendingStoredState != nil }
+  func releaseStoredStateProbe() {
+    let pending = pendingStoredState; pendingStoredState = nil
+    pending?.resume(returning: storedState)
+  }
   func start(interactive: Bool) async throws { starts.append(interactive) }
   func enroll(authKey: String) async throws {
     enrollments += 1
@@ -155,6 +176,268 @@ final class PrivateNetworkTests: XCTestCase {
     XCTAssertEqual(starts, [false])
     XCTAssertEqual(enrollments, 1)
     session.disconnect()
+  }
+
+  @MainActor
+  func testColdLaunchReusesSavedIdentityWithoutReplayingEnrollmentKey() async throws {
+    let name = "test.zenith.network." + UUID().uuidString
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+    defer { defaults.removePersistentDomain(forName: name) }
+    let firstDriver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    let first = PrivateNetworkSession(driver: firstDriver, preferences: defaults)
+    try first.enroll(authKey: "tskey-auth-0123456789ABCDEF-0123456789abcdef0123456789abcdef")
+    await eventually { first.phase == .connected }
+    first.suspend()
+    let restoredDriver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    let restored = PrivateNetworkSession(driver: restoredDriver, preferences: defaults)
+    await restored.restoreSavedConnection()
+    await restored.restoreSavedConnection()
+    await eventually { restored.phase == .connected }
+    let starts = await restoredDriver.starts
+    let enrollments = await restoredDriver.enrollments
+    XCTAssertEqual(starts, [false])
+    XCTAssertEqual(enrollments, 0)
+    let replayedKey = await restoredDriver.submittedKey
+    XCTAssertNil(replayedKey)
+    XCTAssertEqual(defaults.object(forKey: PrivateNetworkSession.connectionRequestedKey) as? Bool, true)
+    XCTAssertFalse(defaults.dictionaryRepresentation().description.contains("tskey-auth-"))
+    restored.disconnect()
+  }
+
+  @MainActor
+  func testExistingInstallationMigratesOnceAndDisconnectSurvivesRelaunch() async throws {
+    let name = "test.zenith.network." + UUID().uuidString
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+    defer { defaults.removePersistentDomain(forName: name) }
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    let migrated = PrivateNetworkSession(driver: driver, preferences: defaults)
+    await migrated.restoreSavedConnection()
+    await eventually { migrated.phase == .connected }
+    migrated.disconnect()
+    let nextDriver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    let next = PrivateNetworkSession(driver: nextDriver, preferences: defaults)
+    await next.restoreSavedConnection()
+    XCTAssertTrue(next.hasSavedConnection)
+    XCTAssertEqual(next.phase, .idle)
+    let before = await nextDriver.starts
+    XCTAssertTrue(before.isEmpty)
+    next.reconnect()
+    await eventually { next.phase == .connected }
+    let starts = await nextDriver.starts
+    XCTAssertEqual(starts, [false])
+    next.disconnect()
+  }
+
+  @MainActor
+  func testAutomaticReconnectCanBeDisabledAndEmptyInstallDoesNotStart() async throws {
+    let name = "test.zenith.network." + UUID().uuidString
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+    defer { defaults.removePersistentDomain(forName: name) }
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    let session = PrivateNetworkSession(driver: driver, preferences: defaults)
+    session.setAutomaticallyReconnect(false)
+    let restored = PrivateNetworkSession(driver: driver, preferences: defaults)
+    await restored.restoreSavedConnection()
+    XCTAssertFalse(restored.automaticallyReconnect)
+    XCTAssertEqual(restored.phase, .idle)
+    let starts = await driver.starts
+    XCTAssertTrue(starts.isEmpty)
+    defaults.set(true, forKey: PrivateNetworkSession.automaticReconnectKey)
+    defaults.set(true, forKey: PrivateNetworkSession.connectionRequestedKey)
+    let emptyDriver = FakePrivateNetworkDriver(status: try networkStatus("Running"))
+    let empty = PrivateNetworkSession(driver: emptyDriver, preferences: defaults)
+    await empty.restoreSavedConnection()
+    XCTAssertFalse(empty.hasSavedConnection)
+    let emptyStarts = await emptyDriver.starts
+    XCTAssertTrue(emptyStarts.isEmpty)
+  }
+
+  @MainActor
+  func testLateStoredStateProbeCannotUndoExplicitDisconnect() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    await driver.pauseStoredStateProbe()
+    let session = PrivateNetworkSession(driver: driver)
+    let restoration = Task { await session.restoreSavedConnection() }
+    await eventually { await driver.storedStateIsPending }
+    session.disconnect()
+    session.resume()
+    await eventually { session.hasSavedConnection }
+    await driver.releaseStoredStateProbe()
+    await restoration.value
+    let starts = await driver.starts
+    XCTAssertTrue(starts.isEmpty)
+    XCTAssertEqual(session.phase, .idle)
+  }
+
+  @MainActor
+  func testSavedIdentityNeedingAuthenticationDoesNotOpenBrowserAutomatically() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus(
+      "NeedsLogin", authURL: "https://login.tailscale.com/a/expired"), storedState: true)
+    let session = PrivateNetworkSession(driver: driver)
+    await session.restoreSavedConnection()
+    await eventually { session.phase == .signInRequired }
+    XCTAssertNil(session.authURL)
+    let starts = await driver.starts
+    let enrollments = await driver.enrollments
+    XCTAssertEqual(starts, [false])
+    XCTAssertEqual(enrollments, 0)
+    session.disconnect()
+  }
+
+  @MainActor
+  func testTemporaryInterruptionKeepsPollingAndRestoresWithoutNewEnrollment() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    let session = PrivateNetworkSession(driver: driver)
+    await session.restoreSavedConnection()
+    await eventually { session.phase == .connected }
+    let generation = session.generation
+    await driver.transition(try networkStatus("Starting"))
+    await eventually(attempts: 900) { session.phase == .connecting }
+    XCTAssertGreaterThan(session.generation, generation)
+    await driver.transition(try networkStatus("Running"))
+    await eventually { session.phase == .connected }
+    let starts = await driver.starts
+    let enrollments = await driver.enrollments
+    XCTAssertEqual(starts, [false])
+    XCTAssertEqual(enrollments, 0)
+    XCTAssertNil(session.message)
+    session.disconnect()
+  }
+
+  @MainActor
+  func testApprovalPreservesSavedDeviceAndContinuesToConnected() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("NeedsMachineAuth"), storedState: true)
+    let session = PrivateNetworkSession(driver: driver)
+    try session.enroll(authKey: "tskey-auth-0123456789ABCDEF-0123456789abcdef0123456789abcdef")
+    await eventually { session.phase == .awaitingApproval && session.hasSavedConnection }
+    XCTAssertNil(session.authURL)
+    await driver.transition(try networkStatus("Running"))
+    await eventually { session.phase == .connected }
+    let enrollments = await driver.enrollments
+    XCTAssertEqual(enrollments, 1)
+    session.disconnect()
+  }
+
+  @MainActor
+  func testProtectedStateFailureHasRecoverableProbeWithoutFreshEnrollment() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    await driver.setStoredStateFailure(true)
+    let session = PrivateNetworkSession(driver: driver)
+    await session.restoreSavedConnection()
+    XCTAssertTrue(session.savedConnectionNeedsRetry)
+    XCTAssertFalse(session.hasSavedConnection)
+    await driver.setStoredStateFailure(false)
+    await session.retrySavedConnection()
+    await eventually { session.phase == .connected }
+    XCTAssertFalse(session.savedConnectionNeedsRetry)
+    let starts = await driver.starts
+    let enrollments = await driver.enrollments
+    XCTAssertEqual(starts, [false])
+    XCTAssertEqual(enrollments, 0)
+    session.disconnect()
+  }
+
+  @MainActor
+  func testDelayedApprovalGetsStartupGraceWithoutReplayingConsumedKey() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("NeedsMachineAuth"), storedState: true)
+    let session = PrivateNetworkSession(driver: driver)
+    var clock = Date()
+    session.now = { clock }
+    try session.enroll(authKey: "tskey-auth-0123456789ABCDEF-0123456789abcdef0123456789abcdef")
+    await eventually { session.phase == .awaitingApproval && session.hasSavedConnection }
+    clock += 600
+    let calls = await driver.statusCalls
+    await eventually { await driver.statusCalls > calls }
+    await driver.transition(try networkStatus("Starting"))
+    await eventually { session.phase == .connecting }
+    XCTAssertNil(session.message)
+    await driver.transition(try networkStatus("Running"))
+    await eventually { session.phase == .connected }
+    let enrollments = await driver.enrollments
+    XCTAssertEqual(enrollments, 1)
+    session.disconnect()
+  }
+
+  @MainActor
+  func testInteractiveIntentIsConsumedAfterConnection() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    let session = PrivateNetworkSession(driver: driver)
+    session.connect()
+    await eventually { session.phase == .connected }
+    await driver.transition(try networkStatus("NeedsLogin", authURL: "https://login.tailscale.com/a/renew"))
+    await eventually(attempts: 900) { session.phase == .signInRequired }
+    XCTAssertNil(session.authURL, "Renewal must wait for an explicit Sign in tap")
+    session.disconnect()
+  }
+
+  @MainActor
+  func testExplicitSavedRetryWorksEvenWhenAutomaticReconnectIsOff() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    let session = PrivateNetworkSession(driver: driver)
+    session.setAutomaticallyReconnect(false)
+    await driver.setStoredStateFailure(true)
+    await session.restoreSavedConnection()
+    XCTAssertTrue(session.savedConnectionNeedsRetry)
+    await driver.setStoredStateFailure(false)
+    await session.retrySavedConnection()
+    await eventually { session.phase == .connected }
+    XCTAssertFalse(session.automaticallyReconnect)
+    session.disconnect()
+  }
+
+  @MainActor
+  func testAlternativeEnrollmentClearsFailedProbeRecoveryAction() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"))
+    let session = PrivateNetworkSession(driver: driver)
+    await driver.setStoredStateFailure(true)
+    await session.restoreSavedConnection()
+    XCTAssertTrue(session.savedConnectionNeedsRetry)
+    await driver.rejectNextEnrollment()
+    try session.enroll(authKey: "tskey-auth-0123456789ABCDEF-0123456789abcdef0123456789abcdef")
+    await eventually { session.phase == .failed }
+    XCTAssertFalse(session.savedConnectionNeedsRetry)
+    session.disconnect()
+  }
+
+  @MainActor
+  func testDisconnectDuringExplicitSavedRetryCannotStartNetwork() async throws {
+    let driver = FakePrivateNetworkDriver(status: try networkStatus("Running"), storedState: true)
+    let session = PrivateNetworkSession(driver: driver)
+    session.setAutomaticallyReconnect(false)
+    await session.restoreSavedConnection()
+    XCTAssertTrue(session.hasSavedConnection)
+    session.disconnect()
+    await driver.setStoredStateFailure(true)
+    await session.restoreSavedConnection()
+    XCTAssertTrue(session.savedConnectionNeedsRetry)
+    await driver.setStoredStateFailure(false)
+    await driver.pauseStoredStateProbe()
+    let retry = Task { await session.retrySavedConnection() }
+    await eventually { await driver.storedStateIsPending }
+    session.disconnect()
+    await driver.releaseStoredStateProbe()
+    await retry.value
+    let starts = await driver.starts
+    XCTAssertTrue(starts.isEmpty)
+    XCTAssertEqual(session.phase, .idle)
+  }
+
+  func testSavedStateProbeReadsOnlyFileMetadataAndRejectsLinks() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    XCTAssertFalse(try TailscaleSavedState.exists(in: directory))
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let file = directory.appendingPathComponent("tailscaled.state")
+    try Data().write(to: file)
+    XCTAssertFalse(try TailscaleSavedState.exists(in: directory))
+    try Data("synthetic state, not keys".utf8).write(to: file)
+    XCTAssertTrue(try TailscaleSavedState.exists(in: directory))
+    let link = directory.appendingPathComponent("link")
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: directory)
+    XCTAssertThrowsError(try TailscaleSavedState.exists(in: link))
+    try FileManager.default.removeItem(at: file)
+    try FileManager.default.createSymbolicLink(at: file, withDestinationURL: link)
+    XCTAssertThrowsError(try TailscaleSavedState.exists(in: directory))
   }
 
   @MainActor
@@ -392,10 +675,10 @@ final class PrivateNetworkTests: XCTestCase {
 
   @MainActor
   private func eventually(
-    file: StaticString = #filePath, line: UInt = #line,
+    file: StaticString = #filePath, line: UInt = #line, attempts: Int = 300,
     _ predicate: @escaping @MainActor () async -> Bool
   ) async {
-    for _ in 0..<300 {
+    for _ in 0..<attempts {
       if await predicate() { return }
       try? await Task.sleep(nanoseconds: 10_000_000)
     }

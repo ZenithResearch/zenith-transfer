@@ -6,14 +6,15 @@ final class WalletExperienceTests: XCTestCase {
   func testWalletNavigationSeparatesAccountsRecoveryCredentialsAndSecurity() {
     XCTAssertEqual(WalletDestination.allCases.map(\.rawValue),
       ["identities", "membership", "recovery", "access", "security", "about"])
-    XCTAssertEqual(WalletDestination.access.title, "Credentials & access")
+    XCTAssertEqual(WalletDestination.access.title, "Saved grants")
     XCTAssertEqual(WalletDestination.security.title, "Unlock & security")
   }
   func testOnlyImplementedBackupCoveredDataIsShownInWallet() {
-    XCTAssertEqual(WalletDestination.walletCases, [.identities, .membership, .recovery])
+    XCTAssertEqual(WalletDestination.walletCases, [.identities, .membership, .recovery, .access])
     XCTAssertEqual(WalletDestination.identities.backupCoverage, .recoveryAndCastaway)
     XCTAssertEqual(WalletDestination.membership.backupCoverage, .castaway)
-    for applicationOnly in [WalletDestination.access, .security, .about] {
+    XCTAssertEqual(WalletDestination.access.backupCoverage, .encryptedGrants)
+    for applicationOnly in [WalletDestination.security, .about] {
       XCTAssertNil(applicationOnly.backupCoverage)
       XCTAssertFalse(WalletDestination.walletCases.contains(applicationOnly))
     }

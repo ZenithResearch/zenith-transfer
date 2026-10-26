@@ -2,21 +2,21 @@ import Foundation
 
 /// Complete verified disclosure; signing tokens never leave native custody.
 public struct OperatorConsent: Decodable, Identifiable, Sendable {
-  let token: String
-  let summary: Summary
-  let lifecycle: UInt64
+  package let token: String
+  package let summary: Summary
+  package let lifecycle: UInt64
   public var id: String { token }
   public var issuer: String { summary.issuer }
   public var receiver: String { summary.receiver }
   public var operation: String { summary.operation }
   public var expiresAt: Date { Date(timeIntervalSince1970: TimeInterval(summary.expires_at)) }
   public var details: Data { summary.details.data }
-  struct Summary: Decodable, Sendable {
+  package struct Summary: Decodable, Sendable {
     let issuer: String
     let receiver: String
     let operation: String
     let expires_at: UInt64
-    let native_protocol: String
+    package let native_protocol: String
     let details: PublicJSON
   }
   enum CodingKeys: String, CodingKey { case token, summary }
@@ -25,7 +25,7 @@ public struct OperatorConsent: Decodable, Identifiable, Sendable {
     token = try c.decode(String.self, forKey: .token); summary = try c.decode(Summary.self, forKey: .summary)
     lifecycle = 0
   }
-  init(token: String, summary: Summary, lifecycle: UInt64) {
+  package init(token: String, summary: Summary, lifecycle: UInt64) {
     self.token = token; self.summary = summary; self.lifecycle = lifecycle
   }
 }

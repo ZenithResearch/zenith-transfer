@@ -7,21 +7,95 @@ Use **Open connection files folder** to find that folder. **Choose connection
 file** also works with files saved elsewhere. Refresh after copying a file.
 Nothing is connected or replaced merely by finding or choosing a file.
 
-## Tailscale
+## Generate a new Tailscale auth key
+
+Choose **Settings → Network → Generate auth key**. This is a native key generator,
+not an auth-key file creator. Supply a Tailscale **API access token** (`tskey-api-`)
+from the Tailnet administrator, a description, and an enrollment window. The
+Tailnet field defaults to `-`, meaning the default network associated with that
+API token; set an explicit name or ID to select another authorized Tailnet.
+Visible labels distinguish the API token’s local label, the Tailnet name/ID, and
+the description of the new enrollment key. A label such as “Transfer” is not a
+Tailnet identifier.
+
+A connected Mac's node identity and an enrollment key (`tskey-auth-`) cannot mint
+new keys. An API access token may carry broad Tailscale administration authority.
+You can paste a token for one operation, or save it explicitly under
+**Settings → Network → API access tokens**. The Keys page
+link provides bootstrap API-token creation or direct browser-based generation.
+Scoped OAuth authorization is a possible later alternative, not an implicit part
+of this flow.
+
+### Saved API tokens on this Mac
+
+Add a label, the authorized Tailnet name/ID (or `-`), and an API access token,
+then choose **Save to Keychain**. Multiple records are supported. **Replace**
+requires entering a new token; saved secrets are not shown or copied back into
+the form. **Remove** forgets just the selected local record after confirmation;
+it does not revoke the token at Tailscale or disconnect any enrolled device.
+Use the linked Tailscale Keys page for provider-side revocation.
+
+These are application network secrets, not Wallet identities or grants. Both
+the token and its display metadata are held in the macOS login Keychain, scoped
+to Transfer’s service and a unique record ID, with synchronization disabled and
+the default application access control. They are not placed in UserDefaults,
+JSON files, ConnectionFiles, Wallet recovery exports or Wallet database backups.
+This preview uses the login Keychain because its build is ad-hoc signed; it does
+not claim a provisioned private data-protection access group or exclusion from
+every OS-level machine backup. macOS may request authorization after a build
+update. There is no file fallback if access fails.
+
+The generator lists only public display attributes. A saved token is retrieved
+only after **Generate one-time key** is confirmed, and used only with the fixed
+official API destination below. A replaced/removed record invalidates an older
+selection. Selecting or saving a token neither contacts Tailscale nor validates
+its server-side permissions or expiry. Pasted and retrieved in-memory values
+are cleared on leaving the screen/foreground; explicitly saved Keychain records
+remain until removed. If a Keychain prompt interrupts generation before submission,
+review again after authorizing access; no POST has been sent.
+
+Review the destination, description and lifetime, then explicitly choose
+**Generate one-time key**. The fixed request creates a non-reusable,
+non-ephemeral, untagged key without bypassing device approval. It calls only
+`POST https://api.tailscale.com/api/v2/tailnet/{tailnet}/keys`, using the existing
+TLS-validating, redirect-blocking, cookie-free bounded HTTP transport. No device
+is automatically enrolled, and no server publication or Wallet grant is changed.
+
+The returned key is transient and masked initially. Choose **Copy key**, then
+paste it directly into Zenith on the receiving device. No transfer file is
+required. Leaving the foreground or closing clears it; Tailscale will not return
+that secret again. Keep the clipboard private. If the key was not copied, revoke
+it in the Tailscale console before generating a replacement.
+
+No POST is automatically retried. Lost responses, redirects, server errors,
+invalid/oversized/duplicate JSON, unexpected capabilities or a widened returned
+key produce an uncertain result and disable another submission in that sheet.
+Check the Keys page before closing/reopening to create another. This preview does
+not persist an issuance journal across app restarts or automatically reconcile
+an uncertain key with the provider. Source tests use synthetic API responses;
+actual key generation requires the administrator's explicit operation.
+
+References: [Tailscale API](https://tailscale.com/docs/reference/tailscale-api),
+[official key request/response model](https://github.com/tailscale/tailscale-client-go-v2/blob/main/keys.go),
+and [official client authentication/default Tailnet](https://github.com/tailscale/tailscale-client-go-v2/blob/main/client.go).
+
+## Tailscale: use an existing key
 
 1. Install the official Tailscale app using **Install Tailscale**, then open it.
-   You can sign in there, or use an enrollment file supplied by the person who
-   manages your network. An existing host connection is reused; Transfer does not
+   Auth-key enrollment is the preferred new-device path; browser sign-in
+   remains available in Tailscale. An existing host connection is reused; Transfer does not
    change a Mac already associated with a network to a different network.
 2. A Tailscale connection file is plain UTF-8 text containing only a `tskey-auth-`
    enrollment key, optionally followed by a newline. Transfer discovers `.txt`,
    `.key` and `.tailscale-key` files in its ConnectionFiles folder. It accepts the
    same key format as the existing iOS enrollment-file importer.
-3. If you manage the network, expand **How to get a Tailscale connection file**
+3. If you manage the network, expand **How to get a Tailscale auth-key file**
    and open **Tailscale Keys**. Generate a one-time, non-ephemeral key with
-   **Reusable** and **Ephemeral** off. Choose **Create connection file** in
+   **Reusable** and **Ephemeral** off. Choose **Create auth-key file** in
    Transfer, paste the key into the protected field, and save a new file. No
    Terminal command, JSON editing, URL entry or LLM is needed for this step.
+   Use a different one-time key for each Mac, iPad or iPhone installation.
+   Leave Tags unset for a personal device and retain device approval when enabled.
    Otherwise, ask your network administrator for that file.
 4. Choose or review the file, then explicitly select **Connect this Mac**.
    Device approval may still be required. Refresh after the administrator approves
@@ -75,4 +149,4 @@ when Tailscale is disconnected. Native UI rendering covers an empty installation
 with no configured Wallet. Tests never enroll a real device or change a live
 Tailscale/Serve/Funnel configuration. macOS uses its installed Tailscale node and
 OS routing; the existing iOS embedded route and its no-direct-fallback guard are
-unchanged. Wallet/core remains pinned to public core0.3.0 / `054b372`.
+unchanged. Wallet/Core remains pinned to public Core0.4.0 / `0c889e7`; this UI change does not change that dependency.

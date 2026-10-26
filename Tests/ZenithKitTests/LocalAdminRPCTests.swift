@@ -92,8 +92,19 @@ final class LocalAdminRPCTests: XCTestCase {
     XCTAssertThrowsError(try rpc.envelope(operation: "challenge",
       body: JSONSerialization.data(withJSONObject: tooDeep), requestID: UUID().uuidString.lowercased()))
     XCTAssertThrowsError(try rpc.envelope(operation: "challenge",
-      body: JSONSerialization.data(withJSONObject: ["text": String(repeating: "a", count: 65_536)]),
+      body: JSONSerialization.data(withJSONObject: ["text": String(repeating: "a", count: 524_288)]),
       requestID: UUID().uuidString.lowercased()))
+  }
+  func testLargeOperatorEnvelopeFitsWithoutWeakeningTheOverallBound() throws {
+    let service = try service()
+    let rpc = try LocalAdminRPC.decode(JSONSerialization.data(withJSONObject: configuration(service)), service: service,
+      home: FileManager.default.homeDirectoryForCurrentUser)
+    let body = try JSONSerialization.data(withJSONObject: ["challenge": ["details": ["selection": String(repeating: "s", count: 131_072)]]])
+    XCTAssertGreaterThan(body.count, 65_536)
+    let encoded = try rpc.envelope(operation: "execute", body: body, requestID: UUID().uuidString.lowercased())
+    let value = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    XCTAssertEqual(try JSONSerialization.data(withJSONObject: value["body"]!, options: [.sortedKeys]),
+      try JSONSerialization.data(withJSONObject: JSONSerialization.jsonObject(with: body), options: [.sortedKeys]))
   }
   private func secondary(_ network: WorkNetwork?, endpoint: String) throws -> LocalService {
     let original = try service()

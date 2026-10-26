@@ -15,7 +15,7 @@ struct TransferWalletWorkspace: View {
           WalletHomeContent(publicKey: model.displayPublicKey, unlocked: model.walletUnlocked,
             backupVerified: model.wallet?.backupVerified == true, membershipActive: model.wallet?.membershipActive == true,
             accessSummary: "Review access for your registered services", open: { destination in
-              if destination == .access { openAccess() } else { path.append(destination) }
+              path.append(destination)
             }, lock: model.lock)
         }
       }.navigationDestination(for: WalletDestination.self) { destination in
@@ -24,7 +24,7 @@ struct TransferWalletWorkspace: View {
         case .membership: WalletMembershipContent(repository: model.repository, unlocked: model.walletUnlocked)
         case .recovery: TransferRecoveryView(model: model)
         case .security: TransferWalletView(model: model, section: .security)
-        case .access: Text("Choose a service in Resources & requests.")
+        case .access: ScrollView { WalletGrantsView(repository:model.repository,unlocked:model.walletUnlocked) }
         case .about: ScrollView { VStack { WalletAboutContent(); NavigationLink("How accounts and this Mac fit together") { TransferIdentityModelView() }.padding() } }
         }
       }

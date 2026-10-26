@@ -30,7 +30,7 @@ public enum WorkServerSettings {
   public static func decode(_ data: Data) throws -> WorkAccessConfiguration {
     guard data.count <= maximumFileBytes,
       let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      Set(object.keys).isSubset(of: ["name", "receiver", "issuer", "authority", "network", "tls_certificate_sha256"]),
+      Set(object.keys).isSubset(of: ["name", "receiver", "issuer", "authority", "network", "tls_certificate_sha256", "service_access_point"]),
       let authority = object["authority"] as? [String: Any],
       Set(authority.keys) == ["issuer", "key_id", "public_key", "receiver", "audience"],
       let value = try? JSONDecoder().decode(WorkAccessConfiguration.self, from: data),

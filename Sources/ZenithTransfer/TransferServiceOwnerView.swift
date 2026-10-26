@@ -27,7 +27,7 @@ import ZenithKit
       proofRetained = try state.preparation.map { try coordinator.retainedProof($0) } ?? false
     } catch { self.error = "Could not verify this service’s local setup. Its address and existing setup files have been preserved. Check that the Wallet service is running, then check setup status." }
   }
-  func review(repository: WalletRepository?, refresh: Bool = false) async {
+  func review(repository: (any WalletSession)?, refresh: Bool = false) async {
     guard busy == nil, !blocked, !proofRetained, !activationAttempted else { return }
     busy = "Preparing your owner registration…"; defer { busy = nil }
     do {
@@ -46,7 +46,7 @@ import ZenithKit
       self.error = (error as? OwnerSetupError)?.errorDescription ?? "The owner review did not finish. Check setup status before continuing. No registration was submitted."
     }
   }
-  func confirm(repository: WalletRepository?) async {
+  func confirm(repository: (any WalletSession)?) async {
     guard busy == nil, let consent else { return }; self.consent = nil
     busy = "Registering your Wallet…"; defer { busy = nil }
     do {

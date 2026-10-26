@@ -3,7 +3,7 @@ import SwiftUI
 /// Shared native UI over the portable core section. All mutations use the
 /// original preview/CAS/lifecycle transaction. No registry file is edited here.
 public struct PortableWalletIdentitiesView: View {
-  let repository: WalletRepository?
+  let repository: (any WalletSession)?
   let unlocked: Bool
   let legacy: [IdentityAccount]
   let changed: () -> Void
@@ -17,7 +17,7 @@ public struct PortableWalletIdentitiesView: View {
   @State private var uncertain = false
   @State private var message: String?
   @State private var operation: Task<Void, Never>?
-  public init(repository: WalletRepository?, unlocked: Bool, legacy: [IdentityAccount], changed: @escaping () -> Void) {
+  public init(repository: (any WalletSession)?, unlocked: Bool, legacy: [IdentityAccount], changed: @escaping () -> Void) {
     self.repository = repository; self.unlocked = unlocked; self.legacy = legacy; self.changed = changed
   }
   public var body: some View {

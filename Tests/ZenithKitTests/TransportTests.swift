@@ -125,7 +125,10 @@ final class TransportTests: XCTestCase {
   }
   private func transport(status: Int, data: Data) -> PrivateTransport {
     ResponseProtocol.guardLock.lock()
-    ResponseProtocol.handler = { _ in (status, data) }
+    ResponseProtocol.handler = { request in
+      if request.url?.path == "/.well-known/devgraph-service.json" { return (404, Data()) }
+      return (status, data)
+    }
     ResponseProtocol.guardLock.unlock()
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [ResponseProtocol.self]

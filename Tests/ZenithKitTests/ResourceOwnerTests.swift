@@ -1,3 +1,4 @@
+@testable import CastaliaCustody
 #if os(macOS)
 import XCTest
 @testable import ZenithKit

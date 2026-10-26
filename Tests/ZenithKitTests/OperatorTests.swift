@@ -1,3 +1,4 @@
+@testable import CastaliaCustody
 import CryptoKit
 import XCTest
 @testable import ZenithKit

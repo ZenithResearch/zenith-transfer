@@ -5,7 +5,7 @@ cd "$project_dir"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 swift build --product ZenithTransfer
 binary_dir=$(swift build --show-bin-path)
-final_app="$project_dir/Artifacts/Zenith Transfer.app"
+final_app="${TRANSFER_APP_OUTPUT:-$project_dir/Artifacts/Zenith Transfer.app}"
 stage_dir=$(mktemp -d "$project_dir/Artifacts/transfer-build.XXXXXX")
 app_dir="$stage_dir/Zenith Transfer.app"
 mkdir -p "$app_dir/Contents/MacOS"
@@ -31,7 +31,7 @@ cat > "$app_dir/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Zenith Transfer</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.2.0</string>
-<key>CFBundleVersion</key><string>39</string>
+<key>CFBundleVersion</key><string>45</string>
 <key>CFBundleIconFile</key><string>Zenith</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>

@@ -54,6 +54,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 ## [Unreleased]
 
+### Added
+
+- Add reviewed encrypted provider grants and grant backups under Wallet, using the same public Core0.4 as iOS — same-holder equal or narrower credentials no longer require provider reissuance. Onward delegation remains disabled; installed acceptance is pending.
+
+
 ### Fixed
 
 - Recheck protected local RPC v3 registrations for LAN, Tailnet and public service profiles — locally registered administration must use its pinned host adapter and fail closed when the binding changes.

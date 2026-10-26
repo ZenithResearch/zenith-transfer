@@ -1,4 +1,5 @@
 .build/
+.build-*/
 .swiftpm/
 Artifacts/*
 !Artifacts/.gitkeep
@@ -19,6 +20,8 @@ __pycache__/
 
 # Local UI screenshots, review logs and test-only preview binaries.
 artifacts/
+
+.test-tmp/
 
 # Local Tailscale device-enrollment connection files are never source assets.
 *.tailscale-key
