@@ -69,9 +69,39 @@ public struct WorkReadGrant: Codable, Sendable, Equatable {
   public let work_ids: [String]?
   public let arena_ids: [String]?
   public let include_archived: Bool
+  public var isArena: Bool { scope == "devgraph.arena.read" }
+  var operationPrefix: String { isArena ? "devgraph.arena." : "devgraph.work." }
+  enum CodingKeys: String, CodingKey {
+    case schema, resource_paths, scope, operations, relationship_types, work_kinds, work_ids, arena_ids, include_archived
+  }
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    scope = try c.decode(String.self, forKey: .scope)
+    schema = try c.decodeIfPresent(String.self, forKey: .schema)
+    resource_paths = try c.decodeIfPresent([WorkResourcePath].self, forKey: .resource_paths)
+    work_ids = try c.decodeIfPresent([String].self, forKey: .work_ids)
+    arena_ids = try c.decodeIfPresent([String].self, forKey: .arena_ids)
+    if scope == "devgraph.arena.read" {
+      operations = try c.decodeIfPresent([String].self, forKey: .operations) ?? ["list", "get"]
+      relationship_types = []; work_kinds = []; include_archived = false
+    } else {
+      operations = try c.decode([String].self, forKey: .operations)
+      relationship_types = try c.decode([String].self, forKey: .relationship_types)
+      work_kinds = try c.decode([String].self, forKey: .work_kinds)
+      include_archived = try c.decode(Bool.self, forKey: .include_archived)
+    }
+  }
   func validate(protocol version: WorkReadProtocol = .nativeV2) throws {
+    if isArena {
+      guard version == .arenaV5, schema == nil, resource_paths == nil, work_ids == nil,
+        let ids = arena_ids, !ids.isEmpty, ids.count <= 256, Set(ids).count == ids.count,
+        ids.allSatisfy(validWorkID), !operations.isEmpty,
+        Set(operations).isSubset(of: ["list", "get"]), Set(operations).count == operations.count
+      else { throw WalletFailure.core("unsupported_read_scope") }
+      return
+    }
     if let paths = resource_paths {
-      guard version == .pathV4, schema == "devgraph.path-read-grant.v1", !paths.isEmpty,
+      guard [.pathV4, .arenaV5].contains(version), schema == "devgraph.path-read-grant.v1", !paths.isEmpty,
         paths.count <= 16, Set(paths).count == paths.count
       else { throw WalletFailure.core("unsupported_read_scope") }
       for path in paths { try path.validate() }
@@ -120,6 +150,24 @@ public struct NativeReadManifest: Decodable, Sendable {
   public let issued_at: UInt64
   public let expires_at: UInt64
   public let read_grants: [WorkReadGrant]
+}
+/// Arena is a metadata resource, not a Work kind or an implicit Work grant.
+public struct ArenaRecord: Decodable, Identifiable, Sendable {
+  public let kind: String
+  public let id: String
+  public let title: String
+  public let description: String
+  public let version: Int
+  public let archived: Bool
+  public func validate() throws {
+    guard kind == "Arena", validWorkID(id), version > 0 else {
+      throw WalletFailure.core("invalid_response")
+    }
+  }
+}
+public struct ArenaPage: Sendable {
+  public let items: [ArenaRecord]
+  public let next: String?
 }
 public struct WorkRecord: Decodable, Identifiable, Sendable {
   public let kind: String
@@ -380,12 +428,64 @@ public final class DevgraphReadClient: @unchecked Sendable {
       next: keys.count == 20
         ? keys.last.map { WorkPageCursor(after: $0, revision: nil) } : nil)
   }
+  public func arenas(after: String? = nil) async throws -> ArenaPage {
+    let access = try await manifest()
+    let ids = Set(access.read_grants.filter { $0.isArena && $0.operations.contains("list") }.flatMap { $0.arena_ids ?? [] })
+    guard access.readProtocol == .arenaV5, !ids.isEmpty, after.map(validWorkID) ?? true else {
+      throw WalletFailure.core("unsupported_read_scope")
+    }
+    let path = "/arenas?limit=20" + (after.map { "&after_id=" + $0 } ?? "")
+    let data = try await read(operation: "arena.list", parameters: ["path": path], protocol: access.readProtocol)
+    struct Page: Decodable { let items: [ArenaRecord] }
+    let rows = try JSONDecoder().decode(Page.self, from: data).items
+    for row in rows { try row.validate() }
+    let keys = rows.map(\.id)
+    guard keys.count <= 20, keys == keys.sorted(), Set(keys).count == keys.count,
+      Set(keys).isSubset(of: ids), after.map({ a in keys.allSatisfy { $0 > a } }) ?? true else {
+      throw WalletFailure.core("invalid_response")
+    }
+    return ArenaPage(items: rows, next: rows.count == 20 ? rows.last?.id : nil)
+  }
+  public func arena(id: String) async throws -> ArenaRecord {
+    let access = try await manifest()
+    guard access.readProtocol == .arenaV5, validWorkID(id), access.read_grants.contains(where: {
+      $0.isArena && $0.operations.contains("get") && ($0.arena_ids ?? []).contains(id)
+    }) else { throw WalletFailure.core("unsupported_read_scope") }
+    let data = try await read(operation: "arena.get", parameters: ["path": "/arenas/" + id], protocol: access.readProtocol)
+    let row = try JSONDecoder().decode(ArenaRecord.self, from: data)
+    try row.validate()
+    guard row.id == id else { throw WalletFailure.core("invalid_response") }
+    return row
+  }
+  public func arenaMembers(id: String, after: WorkPageCursor? = nil) async throws -> WorkPage {
+    let access = try await manifest()
+    let kinds = Set(access.read_grants.filter { !$0.isArena && $0.operations.contains("list") }.flatMap(\.work_kinds))
+    guard access.readProtocol == .arenaV5, validWorkID(id), !kinds.isEmpty,
+      access.read_grants.contains(where: { $0.isArena && $0.operations.contains("get") && ($0.arena_ids ?? []).contains(id) })
+    else { throw WalletFailure.core("unsupported_read_scope") }
+    var path = "/arenas/" + id + "/members?limit=20"
+    if let after {
+      let pair = after.after.split(separator: "/", omittingEmptySubsequences: false)
+      guard after.revision == nil, pair.count == 2, kinds.contains(String(pair[0])), validWorkID(String(pair[1])) else {
+        throw WalletFailure.core("invalid_response")
+      }
+      path += "&after_resource=" + after.after
+    }
+    let data = try await read(operation: "arena.get", parameters: ["path": path], protocol: access.readProtocol)
+    struct Page: Decodable { let items: [WorkRecord] }
+    let rows = try JSONDecoder().decode(Page.self, from: data).items
+    let keys = rows.map(\.rowID)
+    guard keys.count <= 20, keys == keys.sorted(), Set(keys).count == keys.count,
+      rows.allSatisfy({ kinds.contains($0.kind) }), after.map({ a in keys.allSatisfy { $0 > a.after } }) ?? true
+    else { throw WalletFailure.core("invalid_response") }
+    return WorkPage(items: rows, next: rows.count == 20 ? keys.last.map { WorkPageCursor(after: $0, revision: nil) } : nil)
+  }
   private func read(
     operation: String, parameters: [String: Any], protocol version: WorkReadProtocol
   ) async throws -> Data {
     let ticket = repository.lifecycleTicket()
     let call: [String: Any] = [
-      "operation": "devgraph.work." + operation,
+      "operation": (operation.hasPrefix("arena.") ? "devgraph." : "devgraph.work.") + operation,
       "resource": "https://work.zenith-research.ca/devgraph", "parameters": parameters,
     ]
     let proof: Data
@@ -428,20 +528,26 @@ private func integer(_ value: Any?) throws -> UInt64 {
   else { throw WalletFailure.core("invalid_response") }
   return n.uint64Value
 }
-private func parseGrants(_ value: Any?, protocol version: WorkReadProtocol) throws
+func parseGrants(_ value: Any?, protocol version: WorkReadProtocol, holder: Bool = false) throws
   -> [WorkReadGrant]
 {
   guard let values = value as? [[String: Any]], !values.isEmpty, values.count <= 32 else {
     throw WalletFailure.core("invalid_response")
   }
   for value in values {
+    if value["scope"] as? String == "devgraph.arena.read" {
+      guard version == .arenaV5,
+        Set(value.keys) == ["scope", "arena_ids"] || holder && Set(value.keys) == ["scope", "arena_ids", "operations"]
+      else { throw WalletFailure.core("unsupported_read_scope") }
+      continue
+    }
     let base: Set<String> = [
       "scope", "operations", "relationship_types", "work_kinds", "include_archived",
     ]
     guard base.isSubset(of: Set(value.keys)),
       Set(value.keys).isSubset(
         of: base.union(["work_ids", "arena_ids"]).union(
-          version == .pathV4 ? ["schema", "resource_paths"] : []))
+          [.pathV4, .arenaV5].contains(version) ? ["schema", "resource_paths"] : []))
     else { throw WalletFailure.core("invalid_response") }
   }
   let grants = try JSONDecoder().decode(
@@ -503,7 +609,7 @@ func decodeReadProposal(
     else { throw WalletFailure.core("unsupported_read_scope") }
     let grant = try parseGrants([constraint], protocol: readProtocol)[0]
     guard let operation = permission["operation"] as? String,
-      grant.operations.map({ "devgraph.work." + $0 }).contains(operation)
+      grant.operations.map({ grant.operationPrefix + $0 }).contains(operation)
     else { throw WalletFailure.core("unsupported_read_scope") }
     return grant
   }
@@ -512,7 +618,7 @@ func decodeReadProposal(
     grants.allSatisfy({ grant in
       grant.operations.allSatisfy { operation in
         zip(permissions, decoded).contains {
-          $0.0["operation"] as? String == "devgraph.work." + operation && $0.1 == grant
+          $0.0["operation"] as? String == grant.operationPrefix + operation && $0.1 == grant
         }
       }
     })
@@ -639,10 +745,11 @@ extension DevgraphReadClient {
       throw WalletFailure.core("invalid_holder_credential")
     }
     let converted = try holderReadConstraints(permissions)
-    let grants = try parseGrants(converted, protocol: .pathV4)
+    let version: WorkReadProtocol = converted.contains { $0["scope"] as? String == "devgraph.arena.read" } ? .arenaV5 : .pathV4
+    let grants = try parseGrants(converted, protocol: version, holder: true)
     let manifest: [String: Any] = [
       "schema": "devgraph.native-read-manifest.v2",
-      "readProtocol": WorkReadProtocol.pathV4.rawValue,
+      "readProtocol": version.rawValue,
       "credential_id": claims["credential_id"] as Any,
       "subject_public_key": claims["holder_public_key"] as Any,
       "installation_id": claims["installation_id"] as Any, "issuer": root["issuer"] as Any,
@@ -655,19 +762,30 @@ extension DevgraphReadClient {
       NativeReadManifest.self, from: JSONSerialization.data(withJSONObject: manifest))
   }
 }
-private func holderReadConstraints(_ permissions: [[String: Any]]) throws -> [[String: Any]] {
+func holderReadConstraints(_ permissions: [[String: Any]]) throws -> [[String: Any]] {
   try permissions.compactMap { p in
-    guard let operation = p["operation"] as? String, operation.hasPrefix("devgraph.work.") else {
+    guard let operation = p["operation"] as? String,
+      operation.hasPrefix("devgraph.work.") || ["devgraph.arena.list", "devgraph.arena.get"].contains(operation) else {
       return nil
     }
     guard p["resource"] as? String == "https://work.zenith-research.ca/devgraph",
       var c = p["constraints"] as? [String: Any], let scope = p["scope"] as? [String: Any]
     else { throw WalletFailure.core("invalid_holder_scope") }
-    c["operations"] = [String(operation.dropFirst("devgraph.work.".count))]
+    let arena = operation.hasPrefix("devgraph.arena.")
+    guard arena == (c["scope"] as? String == "devgraph.arena.read") else {
+      throw WalletFailure.core("invalid_holder_scope")
+    }
+    c["operations"] = [String(operation.dropFirst((arena ? "devgraph.arena." : "devgraph.work.").count))]
     if scope["mode"] as? String == "paths" {
       guard let roots = scope["roots"] as? [[[String: String]]] else {
         throw WalletFailure.core("invalid_holder_scope")
       }
+      if arena {
+        guard !roots.isEmpty, let ids = c["arena_ids"] as? [String],
+          roots.allSatisfy({ $0.count == 1 && $0[0]["kind"] == "Arena" && ids.contains($0[0]["id"] ?? "") })
+        else { throw WalletFailure.core("invalid_holder_scope") }
+        c["arena_ids"] = Array(Set(roots.compactMap { $0.first?["id"] })).sorted()
+      } else {
       c["resource_paths"] = try roots.map { root in
         [
           "schema": "devgraph.resource-path.v1",
@@ -680,6 +798,7 @@ private func holderReadConstraints(_ permissions: [[String: Any]]) throws -> [[S
         ] as [String: Any]
       }
       c["schema"] = "devgraph.path-read-grant.v1"
+      }
     } else if scope["mode"] as? String != "all" {
       throw WalletFailure.core("invalid_holder_scope")
     }

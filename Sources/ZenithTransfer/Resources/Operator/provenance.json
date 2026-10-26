@@ -1,15 +1,15 @@
 {
-  "source_commit": "326fb7b633f4e14927af28baa86c5e6bf69d0872",
+  "source_commit": "457cbb2dc1eaf31e60b08a1553a6ce7492ca7e6b",
   "source_files": {
-    "access/app.mjs": "690a5e96bf984e714f82c0a674a6be260c0b894c77342599c7ce07454a6061fc",
-    "access/client.mjs": "36895eb5505175803ca5f2ec28bce721e7283d1535f05e41989b83c3cb6ff4a9",
-    "access/core.mjs": "271c03a558ea8404b5203cbf89861ed3e85300e7b593b77c57d0a7af66c135e2",
-    "access/policy.mjs": "c4dafa6bb511f4e25ef13e883a0fb230ce8ea442c9ee5bad4a49424f78656f8f",
+    "access/app.mjs": "373b91b13760a1d98de336e00dc79e370690a0927c0beba06ceba6d06bdf94f7",
+    "access/client.mjs": "35b48a5a3b0df5a72a5c27b143fba3b4a1167e32d11fb13b375e1bb89085fcb6",
+    "access/core.mjs": "202d88a0a4a17733f9573a4671ea4c799eea4e3df77ea32615c6fa13daf5c28b",
+    "access/policy.mjs": "930a52f6ce7d27313840b4a0c5fde63befc8e7bc061c475bb1f5ac851c1a04fc",
     "access/style.css": "012b851bbff57879ed3d8ffaf86efd007647ab8cc314fc426ff70fc545900452",
     "credential-v2/scope-picker.mjs": "5c3be131d62c39200399686ba8d7486e81111909eaffe4c4caa9e7358c483779",
     "topology/theme.js": "75bab5682731b2012df6e8b303bd134fa85df86e476acc665af9f74b98cc994d",
     "topology/zenith-tokens.css": "f870bfb61d805b0057ee9f68a68ecd386f6f5b7b9ed9e561fc3efc038e1e00ba",
-    "access/index.html": "91581762abe0971cd8b3ba0f36923531ff91e1154c442b709802328c4f4aeae2"
+    "access/index.html": "e6a33728b62e36e3874c83d4cae7376d4c01c39022b16f0c2714bdb14d956fe9"
   },
   "adaptations": [
     "native bridge identity, proof and HTTP transport",

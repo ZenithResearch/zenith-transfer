@@ -14,7 +14,7 @@ final class NativeGrantSelectionTests: XCTestCase {
       let paths = try JSONDecoder().decode([WorkResourcePath].self, from: GrantJSON.data(item["paths"]!))
       let scopes = paths.map { WorkScopeOption(resource_path: $0, resource: $0.path.last!, title: "Fixture", parent: nil) }
       var choice = NativeGrantChoice()
-      choice.reads = Set(item["reads"] as! [String]); choice.writes = Set(item["writes"] as! [String]); choice.kinds = Set(item["kinds"] as! [String])
+      choice.arenaIDs = Set(item["arenas"] as? [String] ?? []); choice.reads = Set(item["reads"] as! [String]); choice.writes = Set(item["writes"] as! [String]); choice.kinds = Set(item["kinds"] as! [String])
       choice.paths = paths; choice.wholeGraph = paths.isEmpty
       choice.untilRevoked = item["end"] is NSNull
       if let end = GrantJSON.integer(item["end"]) { choice.expiry = Date(timeIntervalSince1970: Double(end)) }
@@ -59,6 +59,35 @@ final class NativeGrantSelectionTests: XCTestCase {
     choice.untilRevoked = false; choice.expiry = Date(timeIntervalSince1970: Double(f["now"] as! Int) + 2000); XCTAssertThrowsError(try make())
     choice.expiry = Date(timeIntervalSince1970: Double(f["now"] as! Int) + 100)
     ceiling["subject_public_key"] = String(repeating: "f", count: 64); XCTAssertThrowsError(try make())
+  }
+  func testArenaSelectionIsExplicitIndependentAndBoundedByV6Ceiling() throws {
+    let f = try fixtures()[0]
+    var ceiling = f["ceiling"] as! [String: Any]
+    ceiling["schema"] = "devgraph.access-draft.v6"
+    ceiling.removeValue(forKey: "not_before"); ceiling.removeValue(forKey: "not_after")
+    ceiling["validity"] = ["schema": "castalia.grant-validity.v1", "mode": "until_revoked", "not_before": 1]
+    var reads = ceiling["read_grants"] as! [[String: Any]]
+    reads.append(["scope": "devgraph.arena.read", "arena_ids": ["one", "two"]])
+    ceiling["read_grants"] = reads
+    let recipient = try NativeGrantRecipient(f["recipient"] as! [String: Any])
+    func make(_ choice: NativeGrantChoice) throws -> [[String: Any]] {
+      let s = try NativeGrantSelection.make(ceiling: ceiling, ceilingDigest: f["digest"] as! String,
+        recipient: recipient, choice: choice, scopes: [], now: f["now"] as! Int)
+      return (s["read"] as! [String: Any])["read_grants"] as! [[String: Any]]
+    }
+    var choice = NativeGrantChoice(); choice.wholeGraph = true; choice.arenaIDs = ["one"]
+    let arenaOnly = try make(choice)
+    XCTAssertEqual(arenaOnly.count, 1)
+    XCTAssertEqual(arenaOnly[0]["arena_ids"] as? [String], ["one"])
+    XCTAssertNil(arenaOnly[0]["operations"])
+    choice.arenaIDs = ["private"]
+    XCTAssertThrowsError(try make(choice))
+    choice.arenaIDs = []; choice.reads = ["get"]; choice.kinds = ["Task"]
+    XCTAssertTrue(try make(choice).allSatisfy { $0["scope"] as? String == "devgraph.work.read" })
+    choice.arenaIDs = ["two"]
+    XCTAssertEqual(try make(choice).count, 2)
+    ceiling["schema"] = "devgraph.access-draft.v5"
+    XCTAssertThrowsError(try make(choice), "Old draft cannot hide Arena authority")
   }
   func testAmbiguousJSONAndNumbersFailBeforeDictionaryCollapse() throws {
     for invalid in [#"{"a":1,"\u0061":2}"#, #"{"a":1.0}"#, #"{"a":-1}"#, #"{"a":9007199254740992}"#, #"{"a":01}"#] {

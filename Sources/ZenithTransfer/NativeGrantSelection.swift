@@ -125,15 +125,16 @@ struct NativeGrantRecipient: Identifiable {
 
 struct NativeGrantPermissions {
   let reads: [String]
+  let arenaIDs: [String]
   let writes: [String]
   let kinds: [String]
   let validity: GrantValidity
   let supportsPaths: Bool
   init(_ ceiling: [String: Any]) throws {
     let schema = ceiling["schema"] as? String ?? ""
-    guard ["devgraph.access-draft.v2", "devgraph.access-draft.v3", "devgraph.access-draft.v4", "devgraph.access-draft.v5"].contains(schema) else { throw NativeGrantError.invalid }
-    supportsPaths = ["devgraph.access-draft.v4", "devgraph.access-draft.v5"].contains(schema)
-    if schema.hasSuffix(".v5") { validity = try GrantValidity.decode(GrantJSON.data(ceiling["validity"] as Any)) }
+    guard ["devgraph.access-draft.v2", "devgraph.access-draft.v3", "devgraph.access-draft.v4", "devgraph.access-draft.v5", "devgraph.access-draft.v6"].contains(schema) else { throw NativeGrantError.invalid }
+    supportsPaths = ["devgraph.access-draft.v4", "devgraph.access-draft.v5", "devgraph.access-draft.v6"].contains(schema)
+    if ["devgraph.access-draft.v5", "devgraph.access-draft.v6"].contains(schema) { validity = try GrantValidity.decode(GrantJSON.data(ceiling["validity"] as Any)) }
     else {
       guard let start = GrantJSON.integer(ceiling["not_before"]), let end = GrantJSON.integer(ceiling["not_after"]) else { throw NativeGrantError.invalid }
       validity = try GrantValidity.decode(GrantJSON.data(["schema": GrantValidity.schema, "mode": "dated", "not_before": start, "not_after": end]))
@@ -145,6 +146,12 @@ struct NativeGrantPermissions {
     let readFields: Set<String> = ["schema", "scope", "operations", "relationship_types", "work_kinds", "work_ids", "arena_ids", "include_archived", "resource_paths"]
     let writeFields: Set<String> = ["schema", "operation", "resources", "arena_ids", "resource_paths"]
     for grant in read {
+      if grant["scope"] as? String == "devgraph.arena.read" {
+        guard schema == "devgraph.access-draft.v6", Set(grant.keys) == ["scope", "arena_ids"] else { throw NativeGrantError.invalid }
+        let ids = try GrantJSON.strings(grant["arena_ids"])
+        guard !ids.isEmpty, ids.count <= 256, ids.allSatisfy({ $0.range(of: "^[a-z0-9][a-z0-9-]{0,255}$", options: .regularExpression) != nil }) else { throw NativeGrantError.invalid }
+        continue
+      }
       guard Set(grant.keys).isSubset(of: readFields), grant["scope"] as? String == "devgraph.work.read",
         GrantJSON.bool(grant["include_archived"]) != nil else { throw NativeGrantError.invalid }
       _ = try GrantJSON.strings(grant["relationship_types"])
@@ -158,9 +165,11 @@ struct NativeGrantPermissions {
       }
       _ = try NativeGrantSelection.paths(grant)
     }
-    reads = Array(Set(try read.flatMap { try GrantJSON.strings($0["operations"]) })).sorted()
+    let workRead = read.filter { $0["scope"] as? String == "devgraph.work.read" }
+    arenaIDs = Array(Set(try read.filter { $0["scope"] as? String == "devgraph.arena.read" }.flatMap { try GrantJSON.strings($0["arena_ids"]) })).sorted()
+    reads = Array(Set(try workRead.flatMap { try GrantJSON.strings($0["operations"]) })).sorted()
     writes = Array(Set(write.compactMap { $0["operation"] as? String })).sorted()
-    kinds = Array(Set(try read.flatMap { try GrantJSON.strings($0["work_kinds"]) } + write.flatMap { ($0["resources"] as? [[String: Any]] ?? []).compactMap { $0["kind"] as? String } })).sorted()
+    kinds = Array(Set(try workRead.flatMap { try GrantJSON.strings($0["work_kinds"]) } + write.flatMap { ($0["resources"] as? [[String: Any]] ?? []).compactMap { $0["kind"] as? String } })).sorted()
     let allowed = Set(CredentialPresetRevision.allReads + ["children", "blockers"])
     let allowedWrites = Set(OwnerPermissionPreset.allOperations.map { "devgraph.work." + $0 + ".v2" })
     guard Set(reads).isSubset(of: allowed), Set(writes).isSubset(of: allowedWrites) else { throw NativeGrantError.invalid }
@@ -168,6 +177,7 @@ struct NativeGrantPermissions {
 }
 
 struct NativeGrantChoice: Equatable {
+  var arenaIDs: Set<String> = []
   var reads: Set<String> = []
   var writes: Set<String> = []
   var kinds: Set<String> = []
@@ -209,15 +219,17 @@ enum NativeGrantSelection {
     guard Set(ceiling.keys).isSubset(of: allowedFields), GrantJSON.hex(ceilingDigest, 64), now >= 0,
       available.validity.contains(UInt64(now)),
       Set(choice.reads).isSubset(of: Set(available.reads)), Set(choice.writes).isSubset(of: Set(available.writes)),
-      Set(choice.kinds).isSubset(of: Set(available.kinds)), !choice.kinds.isEmpty,
-      !choice.reads.isEmpty || !choice.writes.isEmpty else { throw NativeGrantError.permissions }
+      Set(choice.kinds).isSubset(of: Set(available.kinds)),
+      choice.reads.isEmpty && choice.writes.isEmpty || !choice.kinds.isEmpty,
+      Set(choice.arenaIDs).isSubset(of: Set(available.arenaIDs)),
+      !choice.reads.isEmpty || !choice.writes.isEmpty || !choice.arenaIDs.isEmpty else { throw NativeGrantError.permissions }
     guard choice.wholeGraph ? choice.paths.isEmpty : !choice.paths.isEmpty else { throw NativeGrantError.scope }
     let selectedPaths = try WorkScopeSelection.normalized(choice.paths)
     guard selectedPaths.allSatisfy({ p in scopes.contains { $0.resource_path == p } }), selectedPaths.isEmpty || available.supportsPaths else { throw NativeGrantError.scope }
     if let subject = ceiling["subject_public_key"] as? String, subject != recipient.subject { throw NativeGrantError.permissions }
     let end: UInt64?
     if choice.untilRevoked {
-      guard available.validity.notAfter == nil, ceiling["schema"] as? String == "devgraph.access-draft.v5" else { throw NativeGrantError.permissions }; end = nil
+      guard available.validity.notAfter == nil, ["devgraph.access-draft.v5", "devgraph.access-draft.v6"].contains(ceiling["schema"] as? String ?? "") else { throw NativeGrantError.permissions }; end = nil
     } else {
       let t = choice.expiry.timeIntervalSince1970
       guard t.isFinite, t > Double(now), t <= 9_007_199_254_740_991,
@@ -225,8 +237,8 @@ enum NativeGrantSelection {
     }
     var base = ceiling
     base["subject_public_key"] = recipient.subject; base["previous_digest"] = ceilingDigest
-    base.removeValue(forKey: "preset"); if let preset { base["preset"] = preset }
-    if ceiling["schema"] as? String == "devgraph.access-draft.v5" {
+    base.removeValue(forKey: "preset"); if let preset, choice.arenaIDs.isEmpty { base["preset"] = preset }
+    if ["devgraph.access-draft.v5", "devgraph.access-draft.v6"].contains(ceiling["schema"] as? String ?? "") {
       var validity: [String: Any] = ["schema": GrantValidity.schema, "mode": end == nil ? "until_revoked" : "dated", "not_before": now]
       if let end { validity["not_after"] = end }; base["validity"] = validity
     } else { base["not_before"] = now; base["not_after"] = end }
@@ -240,10 +252,14 @@ enum NativeGrantSelection {
       return grant
     }
     var result: [String: Any] = [:]
-    if !choice.reads.isEmpty {
+    if !choice.reads.isEmpty || !choice.arenaIDs.isEmpty {
       var read = base; read.removeValue(forKey: "write_grants"); read["installation_id"] = recipient.installation
       if !available.supportsPaths { read["schema"] = "devgraph.access-draft.v2" }
       let grants = try GrantJSON.rows(ceiling["read_grants"] ?? [[String: Any]]()).compactMap { raw -> [String: Any]? in
+        if raw["scope"] as? String == "devgraph.arena.read" {
+          let ids = try GrantJSON.strings(raw["arena_ids"]).filter { choice.arenaIDs.contains($0) }
+          return ids.isEmpty ? nil : ["scope": "devgraph.arena.read", "arena_ids": ids]
+        }
         var g = raw
         g["operations"] = try GrantJSON.strings(raw["operations"]).filter { choice.reads.contains($0) }
         g["work_kinds"] = try GrantJSON.strings(raw["work_kinds"]).filter { choice.kinds.contains($0) }

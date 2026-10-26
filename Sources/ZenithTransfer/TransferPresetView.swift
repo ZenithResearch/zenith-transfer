@@ -25,6 +25,7 @@ import ZenithKit
 struct TransferPermissionEditor: View {
   @Binding var reads: Set<String>
   @Binding var writes: Set<String>
+  @Binding var arenaRead: Bool
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       Text("Work read permissions").font(.headline)
@@ -36,6 +37,8 @@ struct TransferPermissionEditor: View {
           }
         }
       }
+      Toggle("List and read Arena records", isOn: $arenaRead)
+      Text("Select the specific Arenas when issuing this credential. Arena metadata does not grant access to its Work.").font(.caption).foregroundStyle(.secondary)
       Label(WorkReadPermission.arenaAvailability, systemImage: "info.circle")
         .font(.caption).foregroundStyle(.secondary)
       Text("Write permissions").font(.headline)
@@ -105,6 +108,7 @@ struct TransferPresetEditor: View {
   @State private var detail = ""
   @State private var reads = Set(CredentialPresetRevision.allReads)
   @State private var writes: Set<String> = []
+  @State private var arenaRead = false
   @State private var linkSeat = false
   @State private var seatClass = PresetSeatAssociation.sharedSeatClassIRI
   @State private var seatType = ""
@@ -124,6 +128,7 @@ struct TransferPresetEditor: View {
             Text("Review \(review.name) · revision \(review.revision)").font(.title3.bold())
             Text(review.description)
             Text("Read: " + (review.readOperations.isEmpty ? "None" : review.readOperations.joined(separator: ", ")))
+            if review.arenaRead == true { Text("Arena records: list and read · select Arenas during grant setup") }
             Text("Write: " + (review.writeOperations.isEmpty ? "None" : review.writeOperations.map(OwnerPermissionPreset.title).joined(separator: ", ")))
             if let seat = review.seat {
               Text("Seat type: \(seat.label)")
@@ -145,7 +150,7 @@ struct TransferPresetEditor: View {
                 Button(preset.name) { reads = Set(preset.readOperations); writes = Set(preset.writeOperations) }
               }
             }
-            TransferPermissionEditor(reads: $reads, writes: $writes)
+            TransferPermissionEditor(reads: $reads, writes: $writes, arenaRead: $arenaRead)
             Divider()
             Toggle("Associate with a shared Seat type", isOn: $linkSeat)
             if linkSeat {
@@ -177,7 +182,7 @@ struct TransferPresetEditor: View {
     }.frame(width: 820, height: 720).onAppear {
       if let source {
         name = source.name + (duplicate ? " copy" : ""); detail = source.description
-        reads = Set(source.readOperations); writes = Set(source.writeOperations)
+        reads = Set(source.readOperations); writes = Set(source.writeOperations); arenaRead = source.arenaRead == true
         archived = duplicate ? false : source.archived
         if let seat = source.seat { linkSeat = true; seatClass = seat.seatClassIRI; seatType = seat.seatTypeIRI; seatLabel = seat.label }
       }
@@ -190,7 +195,7 @@ struct TransferPresetEditor: View {
         revision: duplicate || source == nil ? 1 : source!.revision + 1,
         name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: detail,
         readOperations: CredentialPresetRevision.allReads.filter { reads.contains($0) },
-        writeOperations: OwnerPermissionPreset.allOperations.filter { writes.contains($0) }, seat: seat, archived: archived)
+        writeOperations: OwnerPermissionPreset.allOperations.filter { writes.contains($0) }, seat: seat, archived: archived, arenaRead: arenaRead)
       error = nil
     } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "Check the preset settings." }
   }

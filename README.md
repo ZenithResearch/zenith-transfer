@@ -76,8 +76,9 @@ advertised HTTPS profile is for LAN or Tailnet access. Transfer rechecks the
 registration, full configuration and fixed adapter hash before dispatch, and
 does not silently fall back to HTTP when a local binding is missing or changed.
 Hierarchical credential selection keeps its original path and recovery checks.
-An Arena path can constrain Work access; reading Arena records themselves needs
-a separately versioned receiver and native scope contract.
+An Arena path limits Work to that Arena and its descendants. The separate **Arena records** checkboxes share only the selected Arena names/details; they never imply Work access. This requires an Arena-enabled server ceiling (draft v6). Older Work-only ceilings keep their current behavior and show that Arena records are unavailable until an explicit owner-policy upgrade.
+
+Custom preset revision v2 can include Arena-read intent. Applying that recipe asks you to check exact Arenas before review. Built-in and saved v1 recipes remain unchanged. The same v5 native read client in iOS and Transfer preserves Arena permissions through encrypted grant save/reload and self-derived credentials. No onward delegation is enabled.
 
 ## Boundaries and provenance
 

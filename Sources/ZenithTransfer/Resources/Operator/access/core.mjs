@@ -18,7 +18,7 @@ export function grantExpiry({choice,policyExpiresAt,customExpiresAt,now}){
  return expiresAt;
 }
 export function validityView(ceiling){
- const v=ceiling.schema==='devgraph.access-draft.v5'?ceiling.validity:{schema:'castalia.grant-validity.v1',mode:'dated',not_before:ceiling.not_before,not_after:ceiling.not_after};
+ const v=['devgraph.access-draft.v5','devgraph.access-draft.v6'].includes(ceiling.schema)?ceiling.validity:{schema:'castalia.grant-validity.v1',mode:'dated',not_before:ceiling.not_before,not_after:ceiling.not_after};
  const fields=v?.mode==='dated'?['schema','mode','not_before','not_after']:['schema','mode','not_before'];
  if(!v||v.schema!=='castalia.grant-validity.v1'||!['dated','until_revoked'].includes(v.mode)||Object.keys(v).length!==fields.length||fields.some(k=>!Object.hasOwn(v,k))||!Number.isSafeInteger(v.not_before)||v.not_before<0||v.mode==='dated'&&(!Number.isSafeInteger(v.not_after)||v.not_after<=v.not_before))throw Error('invalid_expiry');
  return structuredClone(v);
@@ -27,13 +27,13 @@ export function chooseGrantValidity({choice,ceiling,customExpiresAt,now}){
  const parent=validityView(ceiling);
  if(!Number.isSafeInteger(now)||now<0||now<parent.not_before||parent.mode==='dated'&&now>=parent.not_after)throw Error('invalid_expiry');
  let validity;
- if(choice==='until_revoked'&&ceiling.schema==='devgraph.access-draft.v5'&&parent.mode==='until_revoked')validity={schema:parent.schema,mode:'until_revoked',not_before:now};
+ if(choice==='until_revoked'&&['devgraph.access-draft.v5','devgraph.access-draft.v6'].includes(ceiling.schema)&&parent.mode==='until_revoked')validity={schema:parent.schema,mode:'until_revoked',not_before:now};
  else{const end=choice==='policy'&&parent.mode==='dated'?parent.not_after:choice==='custom'?customExpiresAt:null;if(!Number.isSafeInteger(end)||end<=now||parent.mode==='dated'&&end>parent.not_after)throw Error('invalid_expiry');validity={schema:parent.schema,mode:'dated',not_before:now,not_after:end};}
  return validity;
 }
 export const validityLabel=value=>value?.mode==='until_revoked'?'Until revoked':'Expires '+new Date(value.not_after*1000).toLocaleString();
-export function makeSelection({ceiling,ceilingDigest,recipient,mode='read',operations=[],workIds=[],arenaIds=[],workKinds=null,readOperations=null,resourcePaths=[],preset=null,expiresAt,validity=null,now}){
- const standing=ceiling.schema==='devgraph.access-draft.v5';
+export function makeSelection({ceiling,ceilingDigest,recipient,mode='read',operations=[],workIds=[],arenaIds=[],arenaMetadataIds=[],workKinds=null,readOperations=null,resourcePaths=[],preset=null,expiresAt,validity=null,now}){
+ const standing=['devgraph.access-draft.v5','devgraph.access-draft.v6'].includes(ceiling.schema);
  if(validity&&!standing)throw Error('validity_upgrade_required');
  if(!['read','write','both'].includes(mode))throw Error('invalid_expiry');
  if(standing){
@@ -47,17 +47,22 @@ export function makeSelection({ceiling,ceilingDigest,recipient,mode='read',opera
  if(readOperations!==null&&(!Array.isArray(readOperations)||readOperations.some(op=>!readNames.has(op))))throw Error('invalid_read_operation_selection');
  if(arenaIds.some(id=>typeof id!=='string'||!/^[a-z0-9][a-z0-9-]{0,255}$/.test(id)))throw Error('invalid_arena_selection');
  arenaIds=[...new Set(arenaIds)].sort();
- if(arenaIds.length&&mode!=='read'&&!['devgraph.access-draft.v3','devgraph.access-draft.v4','devgraph.access-draft.v5'].includes(ceiling.schema))throw Error('arena_scoped_writes_unsupported');
+ if(!Array.isArray(arenaMetadataIds)||arenaMetadataIds.length>256||arenaMetadataIds.some(id=>typeof id!=='string'||!/^[a-z0-9][a-z0-9-]{0,255}$/.test(id)))throw Error('invalid_arena_selection');
+ const permittedArenaIds=new Set((ceiling.read_grants??[]).filter(g=>g.scope==='devgraph.arena.read').flatMap(g=>g.arena_ids));
+ if(arenaMetadataIds.some(id=>!permittedArenaIds.has(id)))throw Error('arena_metadata_scope_unavailable');
+ if(arenaIds.length&&mode!=='read'&&!['devgraph.access-draft.v3','devgraph.access-draft.v4','devgraph.access-draft.v5','devgraph.access-draft.v6'].includes(ceiling.schema))throw Error('arena_scoped_writes_unsupported');
  if(ceiling.subject_public_key&&ceiling.subject_public_key!==recipient.subject_public_key)throw Error('recipient_outside_policy');
  const base={...structuredClone(ceiling),subject_public_key:recipient.subject_public_key,previous_digest:ceilingDigest,...(standing?{validity}:{not_before:Math.max(now,ceiling.not_before),not_after:expiresAt})};
- if(resourcePaths.length&&!['devgraph.access-draft.v4','devgraph.access-draft.v5'].includes(ceiling.schema))throw Error('path_scope_upgrade_required');
+ if(resourcePaths.length&&!['devgraph.access-draft.v4','devgraph.access-draft.v5','devgraph.access-draft.v6'].includes(ceiling.schema))throw Error('path_scope_upgrade_required');
  const selected={};
  const constrain=g=>{const paths=narrowPaths(g.resource_paths,resourcePaths);if((g.resource_paths?.length||resourcePaths.length)&&!paths.length)return null;if(paths.length){g.resource_paths=paths;g.schema=Array.isArray(g.operations)?'devgraph.path-read-grant.v1':'devgraph.path-write-grant.v1';}return g;};
+ if(arenaMetadataIds.length)preset=null;
  if(preset)base.preset=structuredClone(preset);else delete base.preset;
  if(mode!=='write'){
-  const read={...base,schema:['devgraph.access-draft.v4','devgraph.access-draft.v5'].includes(ceiling.schema)?ceiling.schema:'devgraph.access-draft.v2',installation_id:recipient.installation_id};delete read.write_grants;
+  const read={...base,schema:['devgraph.access-draft.v4','devgraph.access-draft.v5','devgraph.access-draft.v6'].includes(ceiling.schema)?ceiling.schema:'devgraph.access-draft.v2',installation_id:recipient.installation_id};delete read.write_grants;
   read.read_grants=(ceiling.read_grants??[]).map(raw=>{
    const g=structuredClone(raw);
+   if(g.scope==='devgraph.arena.read'){g.arena_ids=g.arena_ids.filter(id=>arenaMetadataIds.includes(id));return g.arena_ids.length?g:null;}
    if(workKinds!==null){g.work_kinds=g.work_kinds.filter(kind=>workKinds.includes(kind));if(!g.work_kinds.length)return null;if(g.work_ids){g.work_ids=g.work_ids.filter(id=>g.work_kinds.includes(id.split('/')[0]));if(!g.work_ids.length)return null;}}
    if(readOperations!==null){g.operations=g.operations.filter(operation=>readOperations.includes(operation));if(!g.operations.length)return null;}
    if(workIds.length){g.work_ids=intersect(g.work_ids,workIds).filter(id=>g.work_kinds.includes(id.split('/')[0]));if(!g.work_ids.length)return null;}
@@ -88,7 +93,7 @@ export function makeSelection({ceiling,ceilingDigest,recipient,mode='read',opera
 }
 export function selectionSummary(selection){
  const parts=[];
- if(selection.read){const grants=selection.read.read_grants;parts.push({title:'Read',expires_at:selection.read.not_after,validity:validityView(selection.read),binding:'This member and Wallet installation',operations:[...new Set(grants.flatMap(g=>g.operations))],resources:grants.map(g=>({operations:g.operations,types:g.work_kinds,objects:g.work_ids??'All matching current and future objects',arenas:g.arena_ids??'All permitted Arenas',archived:g.include_archived,paths:g.resource_paths??[]}))});}
+ if(selection.read){const grants=selection.read.read_grants;parts.push({title:'Read',expires_at:selection.read.not_after,validity:validityView(selection.read),binding:'This member and Wallet installation',operations:[...new Set(grants.flatMap(g=>g.scope==='devgraph.arena.read'?['Arena metadata']:g.operations))],resources:grants.map(g=>({operations:g.scope==='devgraph.arena.read'?['Read Arena metadata']:g.operations,types:g.scope==='devgraph.arena.read'?['Arena']:g.work_kinds,objects:g.scope==='devgraph.arena.read'?g.arena_ids.map(id=>'Arena/'+id):g.work_ids??'All matching current and future objects',arenas:g.arena_ids??'All permitted Arenas',archived:g.include_archived,paths:g.resource_paths??[]}))});}
  if(selection.write)parts.push({title:'Write',expires_at:selection.write.not_after,validity:validityView(selection.write),grants:selection.write.write_grants.map(g=>({operation:g.operation,resources:g.resources,arenas:g.arena_ids??'All permitted Arenas',paths:g.resource_paths??[]})),binding:'This member; not restricted to one installation',operations:selection.write.write_grants.map(g=>g.operation),resources:selection.write.write_grants.flatMap(g=>g.resources.map(r=>r.kind+'/'+(r.ids?.join(', ')??'all matching current and future objects')))});
  return parts;
 }

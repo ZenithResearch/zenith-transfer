@@ -4,6 +4,17 @@ import XCTest
 @testable import ZenithKit
 
 final class CredentialPresetTests: XCTestCase {
+  func testArenaRecipeUsesNewVersionWithoutChangingExistingPresetBytes() throws {
+    let old = try CredentialPresetRevision(presetID: "reader", revision: 1, name: "Reader", readOperations: ["get"], writeOperations: [])
+    XCTAssertFalse(String(decoding: try old.encoded(), as: UTF8.self).contains("arena_read"))
+    XCTAssertEqual(try CredentialPresetRevision.decode(old.encoded()), old)
+    let arena = try CredentialPresetRevision(presetID: "arena-reader", revision: 1, name: "Arena reader", readOperations: [], writeOperations: [], arenaRead: true)
+    XCTAssertEqual(arena.schema, "zenith.credential-preset.v2")
+    XCTAssertEqual(try CredentialPresetRevision.decode(arena.encoded()).arenaRead, true)
+    var raw = try JSONSerialization.jsonObject(with: arena.encoded()) as! [String: Any]
+    raw["schema"] = "zenith.credential-preset.v1"
+    XCTAssertThrowsError(try CredentialPresetRevision.decode(JSONSerialization.data(withJSONObject: raw)))
+  }
   func testSharedV2PlansKeepExactRecipesAndGranularReads() throws {
     struct Case: Decodable { let name: String; let accepted: Bool; let raw: String; let digest: String? }
     struct Document: Decodable { let cases: [Case] }
