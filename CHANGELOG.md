@@ -1,3 +1,10 @@
+## Independent permission rules — build 52 candidate
+
+- Pair read/write actions with separate hierarchy or exact-ID scopes, so reading one Arena does not grant writes there when only another Project was selected.
+- Recognize all 20 named Work/Arena mutations without expanding presets or installed policy; show touched-resource requirements and reject unrepresentable selections.
+- Preserve each original rule's constraints, validity, holder and origin restrictions; keep same-holder attenuation and onward-delegation policy unchanged.
+- Verify Swift draft output with DevGraph decoders and independent-scope secS/Wallet Core backup and derivation tests.
+
 ## Scope and permission grouping — build 51 candidate
 
 - Put hierarchy coverage and object kinds in Scope, followed by read/write actions.

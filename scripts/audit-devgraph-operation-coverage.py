@@ -38,9 +38,11 @@ if not (isinstance(v2, ast.BinOp) and isinstance(v2.op, ast.Add)
 work = sorted(set(legacy) - {'status'} | set(ast.literal_eval(v2.right)))
 arena = literal_assignment('src/devgraph/arena_requests.py', 'ARENA_OPERATIONS')
 transfer = Path(__file__).resolve().parents[1]
-text = (transfer / 'Sources/ZenithKit/OwnerSetup.swift').read_text()
-selected = json.loads(re.search(r'public static let allOperations = (\[[^\n]+\])', text).group(1))
-editor = {'devgraph.work.' + op + '.v2' for op in selected}
+text = (transfer / 'Sources/ZenithTransfer/DevGraphPermissionCatalog.swift').read_text()
+selected = re.findall(r'Action\("(devgraph\.[^"]+)"', text)
+if len(set(selected)) != len(selected):
+    raise SystemExit('Duplicate editor action mapping.')
+editor = set(selected)
 mutations = ['devgraph.work.' + op + '.v2' for op in work] + ['devgraph.arena.' + op + '.v1' for op in arena]
 releases = source / 'src/devgraph/resources/ontology-releases'
 latest = max((p for p in releases.iterdir() if (p / 'operations.json').is_file()), key=lambda p: tuple(map(int, p.name.removeprefix('v').split('.'))))
@@ -63,3 +65,5 @@ report = {
 args.report.parent.mkdir(parents=True, exist_ok=True)
 args.report.write_text(json.dumps(report, indent=2) + '\n')
 print(json.dumps({k: report[k] for k in ['complete', 'work_write_operations', 'arena_write_operations', 'native_editor_write_operations', 'missing_native_editor_mutations']}))
+if set(mutations) != editor:
+    raise SystemExit('Named mutation mapping drifted; review the provider adapter before publication.')

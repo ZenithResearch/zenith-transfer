@@ -9,6 +9,16 @@ import ZenithKit
   @Published var inbox: NativeOperatorInbox?
   @Published var selected: NativeGrantRecipient?
   @Published var choice = NativeGrantChoice()
+  struct RuleDraft: Identifiable {
+    let id = UUID()
+    var choice = NativeGrantChoice()
+    var scopeMode = "choose"
+    var arenaReadEnabled = false
+    var exactIDText: [String: String] = [:]
+  }
+  @Published var ruleDrafts: [RuleDraft] = []
+  @Published var ruleIndex = 0
+  @Published var exactIDText: [String: String] = [:]
   @Published var arenaReadEnabled = false
   @Published var presetID = "custom"
   @Published var recipeNotice: String?
@@ -38,7 +48,8 @@ import ZenithKit
       defer { state = client?.state ?? .idle; busy = false }
       do { try await operation() }
       catch {
-        if let e = error as? NativeGrantError { self.error = e.errorDescription }
+        if let e = error as? NativeGrantRuleError { self.error = e.errorDescription }
+        else if let e = error as? NativeGrantError { self.error = e.errorDescription }
         else if let e = error as? WalletFailure { self.error = e.errorDescription }
         else if let e = error as? LocalAdminRPCError { self.error = e.errorDescription }
         else if let e = error as? NativeOperatorServerError { self.error = e.errorDescription }
@@ -73,10 +84,11 @@ import ZenithKit
   func select(_ item: NativeGrantRecipient) {
     guard !busy, state == .idle, let inbox else { return }
     selected = item; review = nil; presetID = "custom"; presetReference = nil; recipeNotice = nil
-    choice = NativeGrantChoice(); arenaReadEnabled = false; scopeMode = "choose"; expanded = []
+    choice = NativeGrantChoice(); exactIDText = [:]; arenaReadEnabled = false; scopeMode = "choose"; expanded = []
     choice.kinds = Set(inbox.permissions.kinds).intersection(["Initiative", "Project", "Issue", "Task", "Todo", "Proposal"])
     choice.untilRevoked = inbox.permissions.validity.notAfter == nil
     if let end = inbox.permissions.validity.notAfter { choice.expiry = Date(timeIntervalSince1970: Double(end)) }
+    ruleDrafts = [RuleDraft(choice: choice)]; ruleIndex = 0
     declineReason = ""
     status = "Choose the permissions and resources for this credential. No access has been granted."
   }
@@ -93,7 +105,7 @@ import ZenithKit
       reads = recipe.readOperations; writes = recipe.writeOperations.map { "devgraph.work." + $0 + ".v2" }
     } else { recipeNotice = nil; return }
     choice.reads = Set(reads).intersection(inbox.permissions.reads)
-    let supported = Set(OwnerPermissionPreset.allOperations.map { "devgraph.work." + $0 + ".v2" })
+    let supported = Set(DevGraphPermissionCatalog.writes.map(\.id))
     choice.writes = Set(writes).intersection(inbox.permissions.writes).intersection(supported)
     if inbox.activation["write"] as? Bool == false { choice.writes = [] }
     if !choice.paths.isEmpty { choice.writes.remove("devgraph.work.create.v2") }
@@ -104,7 +116,61 @@ import ZenithKit
   func editedPermissions() { review = nil; presetID = "custom"; presetReference = nil; recipeNotice = nil }
   func changeScope(_ value: String) {
     scopeMode = value; choice.wholeGraph = value == "global"
-    if value != "paths" { choice.paths = [] }; updateArenaCoverage(); review = nil
+    if value != "paths" { choice.paths = [] }
+    choice.exactResources = value == "exact" ? Dictionary(uniqueKeysWithValues: choice.kinds.map { ($0, Set<String>()) }) : nil
+    exactIDText = [:]
+    updateArenaCoverage(); editedPermissions()
+  }
+  func storeRule() {
+    guard ruleDrafts.indices.contains(ruleIndex) else { return }
+    ruleDrafts[ruleIndex].choice = choice; ruleDrafts[ruleIndex].scopeMode = scopeMode
+    ruleDrafts[ruleIndex].arenaReadEnabled = arenaReadEnabled
+    ruleDrafts[ruleIndex].exactIDText = exactIDText
+  }
+  func selectRule(_ index: Int) {
+    guard ruleDrafts.indices.contains(index), index != ruleIndex else { return }
+    storeRule(); let validity = choice
+    ruleIndex = index; choice = ruleDrafts[index].choice
+    choice.untilRevoked = validity.untilRevoked; choice.expiry = validity.expiry
+    scopeMode = ruleDrafts[index].scopeMode; arenaReadEnabled = ruleDrafts[index].arenaReadEnabled; exactIDText = ruleDrafts[index].exactIDText
+    review = nil; expanded = []; editedPermissions()
+  }
+  func addRule() {
+    guard ruleDrafts.count < 16 else { return }
+    storeRule(); let current = choice
+    var next = NativeGrantChoice(); next.kinds = current.kinds
+    next.untilRevoked = current.untilRevoked; next.expiry = current.expiry
+    ruleDrafts.append(RuleDraft(choice: next)); selectRule(ruleDrafts.count - 1)
+  }
+  func removeRule() {
+    guard ruleDrafts.count > 1 else { return }
+    ruleDrafts.remove(at: ruleIndex); ruleIndex = min(ruleIndex, ruleDrafts.count - 1)
+    let old = choice; choice = ruleDrafts[ruleIndex].choice
+    choice.untilRevoked = old.untilRevoked; choice.expiry = old.expiry
+    scopeMode = ruleDrafts[ruleIndex].scopeMode; arenaReadEnabled = ruleDrafts[ruleIndex].arenaReadEnabled; exactIDText = ruleDrafts[ruleIndex].exactIDText
+    editedPermissions()
+  }
+  var permissionRules: [NativeGrantChoice] {
+    ruleDrafts.enumerated().map { index, draft in
+      var result = index == ruleIndex ? choice : draft.choice
+      result.untilRevoked = choice.untilRevoked; result.expiry = choice.expiry
+      return result
+    }
+  }
+  func ruleSummary(_ index: Int) -> String {
+    let rule = index == ruleIndex ? choice : ruleDrafts[index].choice
+    return "Rule \(index + 1) · \(rule.reads.count + (rule.arenaIDs.isEmpty ? 0 : 1)) read · \(rule.writes.count) write · " +
+      (rule.wholeGraph ? "all permitted" : rule.exactResources != nil ? "exact IDs" : "\(rule.paths.count) branches")
+  }
+  func setKind(_ kind: String, enabled: Bool) {
+    if enabled { choice.kinds.insert(kind); if choice.exactResources != nil { choice.exactResources?[kind] = [] } }
+    else { choice.kinds.remove(kind); choice.exactResources?.removeValue(forKey: kind); exactIDText.removeValue(forKey: kind) }
+    updateArenaCoverage(); editedPermissions()
+  }
+  func setExactIDs(_ kind: String, text: String) {
+    exactIDText[kind] = text
+    choice.exactResources?[kind] = Set(text.split { $0 == "," || $0.isWhitespace }.map(String.init))
+    updateArenaCoverage(); editedPermissions()
   }
   var coveredArenaIDs: Set<String> {
     NativeGrantSelection.arenaCoverage(choice, available: inbox?.permissions.arenaIDs ?? [])
@@ -117,9 +183,6 @@ import ZenithKit
     do {
       choice.paths = try WorkScopeSelection.normalized(selected ? choice.paths + [row.resource_path] : choice.paths.filter { $0 != row.resource_path })
       updateArenaCoverage()
-      if !choice.paths.isEmpty, choice.writes.remove("devgraph.work.create.v2") != nil {
-        recipeNotice = "Creating unattached work is excluded from path grants. The selected existing resources can still be edited."
-      }
       review = nil
     } catch { self.error = "Select at most 16 independent branches." }
   }
@@ -127,10 +190,11 @@ import ZenithKit
   func reviewSelection() {
     run { [self] in
       guard let inbox, let selected, let client else { throw NativeGrantError.invalid }
-      if !choice.writes.isEmpty && inbox.activation["write"] as? Bool == false { throw NativeGrantError.permissions }
-      if !choice.reads.isEmpty && !choice.writes.isEmpty && inbox.activation["mixed"] as? Bool == false { throw NativeGrantError.permissions }
-      let selection = try NativeGrantSelection.make(ceiling: inbox.ceiling, ceilingDigest: inbox.digest,
-        recipient: selected, choice: choice, scopes: inbox.scopes, preset: presetReference, now: client.now)
+      let rules = permissionRules
+      if rules.contains(where: { !$0.writes.isEmpty }) && inbox.activation["write"] as? Bool == false { throw NativeGrantError.permissions }
+      if rules.contains(where: { !$0.reads.isEmpty || !$0.arenaIDs.isEmpty }) && rules.contains(where: { !$0.writes.isEmpty }) && inbox.activation["mixed"] as? Bool == false { throw NativeGrantError.permissions }
+      let selection = try NativeGrantSelection.makeRules(ceiling: inbox.ceiling, ceilingDigest: inbox.digest,
+        recipient: selected, rules: rules, scopes: inbox.scopes, preset: ruleDrafts.count == 1 ? presetReference : nil, now: client.now)
       var action = try selectionAction("review", selection: selection)
       action["action"] = "review"
       try await client.prepare(action); state = client.state
@@ -420,12 +484,24 @@ struct ResolvedTransferOperatorView: View {
           Button("Approve this credential in Wallet") { editor.approveSelection() }.buttonStyle(TransferPrimaryButtonStyle()).disabled(!unlocked || !editing)
         }
       } else {
+        Text("Permission rules").font(.headline)
+        Text("Each rule pairs its own scope with its actions. For example: read Arena A in one rule, edit Project B in another. No matching rule means no access. A selected parent includes its descendants; unchecked children are not exclusions.").font(.callout).foregroundStyle(.secondary)
+        ForEach(Array(editor.ruleDrafts.enumerated()), id: \.element.id) { index, _ in
+          Button { editor.selectRule(index) } label: {
+            HStack { Image(systemName: index == editor.ruleIndex ? "checkmark.circle.fill" : "circle"); Text(editor.ruleSummary(index)); Spacer() }
+          }.buttonStyle(.bordered)
+        }
+        HStack {
+          Button("Add permission rule") { editor.addRule() }.disabled(editor.ruleDrafts.count >= 16)
+          Button("Remove this rule") { editor.removeRule() }.disabled(editor.ruleDrafts.count <= 1)
+        }
+        Text("Editing rule \(editor.ruleIndex + 1)").font(.headline)
         presetPicker(inbox)
         scopeChoices(inbox)
         permissionChoices(inbox)
         validityChoices(inbox)
         Button("Review exact selection in Wallet") { editor.reviewSelection() }.buttonStyle(TransferPrimaryButtonStyle())
-          .disabled(!unlocked || !editing || editor.scopeMode == "choose" || editor.choice.reads.isEmpty && editor.choice.writes.isEmpty && editor.choice.arenaIDs.isEmpty)
+          .disabled(!unlocked || !editing || editor.permissionRules.allSatisfy { $0.reads.isEmpty && $0.writes.isEmpty && $0.arenaIDs.isEmpty })
           .disabled(editor.choice.arenaIDs.count > 256)
       }
       DisclosureGroup("Decline request") {
@@ -476,15 +552,25 @@ struct ResolvedTransferOperatorView: View {
       } else {
         Text("No Arena records are available within this administrator’s permissions.").font(.caption).foregroundStyle(.secondary)
       }
+      if editor.scopeMode == "paths" {
+        Text("Hierarchy rules cover canonical Work descendants and exact Arena records. Proposal, Todo and provenance resources need a separate rule with exact IDs or explicit all-permitted coverage. Actions touching several resources require authority for every one.").font(.caption).foregroundStyle(.secondary)
+      }
       Label(WorkReadPermission.arenaAvailability, systemImage: "info.circle")
         .font(.caption).foregroundStyle(.secondary)
-      let supported = OwnerPermissionPreset.allOperations.filter { inbox.permissions.writes.contains("devgraph.work." + $0 + ".v2") }
+      let supported = DevGraphPermissionCatalog.writes.filter { inbox.permissions.writes.contains($0.id) }
       Text("Write permissions").font(.headline)
       if !supported.isEmpty {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 12) {
-          ForEach(supported, id: \.self) { op in
-            Toggle(OwnerPermissionPreset.title(op), isOn: binding("devgraph.work." + op + ".v2", reads: false))
-              .disabled(inbox.activation["write"] as? Bool == false || op == "create" && !editor.choice.paths.isEmpty)
+          ForEach(supported) { action in
+            Toggle(isOn: binding(action.id, reads: false)) {
+              VStack(alignment: .leading, spacing: 3) {
+                Text(action.title)
+                Text(action.explanation).font(.caption).foregroundStyle(.secondary)
+                if !action.hierarchy && editor.scopeMode == "paths" {
+                  Text("Use a separate rule with exact IDs or all permitted resources.").font(.caption).foregroundStyle(.secondary)
+                }
+              }
+            }.disabled(inbox.activation["write"] as? Bool == false || !action.hierarchy && editor.scopeMode == "paths" && !editor.choice.writes.contains(action.id))
           }
         }
       } else {
@@ -504,10 +590,11 @@ struct ResolvedTransferOperatorView: View {
   private func scopeChoices(_ inbox: NativeOperatorInbox) -> some View {
     VStack(alignment: .leading, spacing: 12) {
       Text("Scope").font(.headline)
-      Text("Choose the resource hierarchy here. The read and write permissions below apply within this scope.").font(.callout).foregroundStyle(.secondary)
+      Text("Choose coverage for this rule only. Its read and write actions apply to this scope; other rules keep their own scopes.").font(.callout).foregroundStyle(.secondary)
       Picker("Scope", selection: Binding(get: { editor.scopeMode }, set: { editor.changeScope($0) })) {
         Text("Choose coverage…").tag("choose")
         Text("Selected hierarchy branches").tag("paths")
+        Text("Exact resource IDs").tag("exact")
         Text("All resources permitted by this server").tag("global")
       }
       if editor.scopeMode == "paths" {
@@ -518,6 +605,13 @@ struct ResolvedTransferOperatorView: View {
           Label(bridge.resource.configuration.name, systemImage: "server.rack").font(.headline)
           ForEach(WorkScopeSelection.tree(inbox.scopes)) { scopeRow($0, depth: 0) }
           Text("\(editor.choice.paths.count) selected branches · includes descendants").font(.caption).foregroundStyle(.secondary)
+        }
+      } else if editor.scopeMode == "exact" {
+        Text("Choose resource kinds").font(.headline)
+        resourceKinds(inbox)
+        Text("Enter IDs for each checked resource kind, separated by commas. Empty IDs never mean all resources. Use this for Arena creation, proposals, decisions and review evidence that cannot inherit a Work hierarchy.").font(.callout).foregroundStyle(.secondary)
+        ForEach(editor.choice.kinds.sorted(), id: \.self) { kind in
+          TextField(kind + " IDs", text: Binding(get: { editor.exactIDText[kind] ?? "" }, set: { editor.setExactIDs(kind, text: $0) }))
         }
       } else if editor.scopeMode == "global" {
         Text("This explicitly selects all resources available under the server’s rules, including future matching work. The exact review retains any server-imposed limits.").font(.callout).foregroundStyle(.secondary)
@@ -532,13 +626,13 @@ struct ResolvedTransferOperatorView: View {
           if editor.coveredArenaIDs.isEmpty { Text("These branches contain no verified Arena anchor. No Arena records will be granted.").font(.caption) }
         }
       }
-      DisclosureGroup("Limit object kinds") {
-        ForEach(inbox.permissions.kinds, id: \.self) { kind in
-          Toggle(kind, isOn: Binding(get: { editor.choice.kinds.contains(kind) }, set: { on in
-            if on { editor.choice.kinds.insert(kind) } else { editor.choice.kinds.remove(kind) }
-            editor.editedPermissions()
-          }))
-        }
+      if editor.scopeMode != "exact" { DisclosureGroup("Limit object kinds") { resourceKinds(inbox) } }
+    }
+  }
+  private func resourceKinds(_ inbox: NativeOperatorInbox) -> some View {
+    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading) {
+      ForEach(inbox.permissions.kinds, id: \.self) { kind in
+        Toggle(kind, isOn: Binding(get: { editor.choice.kinds.contains(kind) }, set: { editor.setKind(kind, enabled: $0) }))
       }
     }
   }
@@ -562,7 +656,7 @@ struct ResolvedTransferOperatorView: View {
   }
   private func validityChoices(_ inbox: NativeOperatorInbox) -> some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("Validity").font(.headline)
+      Text("Validity · all rules").font(.headline)
       Toggle("Until revoked", isOn: $editor.choice.untilRevoked).disabled(inbox.permissions.validity.notAfter != nil)
       if !editor.choice.untilRevoked { DatePicker("Grant expires", selection: $editor.choice.expiry, in: Date()...) }
       Text("The recipient may obtain fresh read credentials while this grant is valid. Short credential expiry does not require another operator decision.").font(.caption).foregroundStyle(.secondary)
@@ -630,7 +724,7 @@ struct NativeGrantReview: View {
             VStack(alignment: .leading, spacing: 8) {
               if grant["scope"] as? String == "devgraph.arena.read" { Text("List and read Arena records").font(.headline) }
               if let ops = grant["operations"] as? [String] { Text("Read: " + ops.joined(separator: ", ")) }
-              if let op = grant["operation"] as? String { Text(OwnerPermissionPreset.title(op.replacingOccurrences(of: "devgraph.work.", with: "").replacingOccurrences(of: ".v2", with: ""))) }
+              if let op = grant["operation"] as? String { Text(DevGraphPermissionCatalog.writes.first { $0.id == op }?.title ?? op) }
               if let paths = try? NativeGrantSelection.paths(grant), !paths.isEmpty {
                 ForEach(paths, id: \.self) { Text(WorkScopeSelection.label($0, scopes: scopes)).font(.callout) }
                 Text("Current and future descendants at access time; moved-out resources lose access.").font(.caption).foregroundStyle(.secondary)
