@@ -1,3 +1,9 @@
+## Current-and-future Arena coverage — build 53 candidate
+
+- Add explicit all-current/future Arena coverage within ordinary credential Scope when admitted by the canonical provider; retain fixed-ID selection and independent Work rules.
+- Emit the versioned v8 member draft and share strict v6 native readers with iOS, preserving existing grants, Wallet data, backups and the pinned Core.
+- Keep equal/narrower same-Wallet credentials reusable through secS; onward delegation stays disabled.
+
 ## Independent permission rules — build 52 candidate
 
 - Pair read/write actions with separate hierarchy or exact-ID scopes, so reading one Arena does not grant writes there when only another Project was selected.

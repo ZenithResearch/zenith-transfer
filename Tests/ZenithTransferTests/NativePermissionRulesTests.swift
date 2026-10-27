@@ -89,6 +89,44 @@ final class NativePermissionRulesTests: XCTestCase {
     XCTAssertEqual(grants.first { $0["scope"] as? String == "devgraph.work.read" }?["work_ids"] as? [String], ["Task/task"])
     XCTAssertEqual(grants.first { $0["scope"] as? String == "devgraph.arena.read" }?["arena_ids"] as? [String], ["a"])
   }
+  func testFutureArenaSelectionStaysDynamicAndFixedSelectionsStayFixed() throws {
+    var (ceiling, recipient) = try context()
+    ceiling["schema"] = "devgraph.access-draft.v7"
+    ceiling["read_grants"] = [["scope": "devgraph.arena.read", "all_arenas": true]]
+    var choice = NativeGrantChoice(); choice.wholeGraph = true; choice.allArenas = true
+    let output = try compile([choice], ceiling: ceiling, recipient: recipient)
+    let draft = output["read"] as! [String: Any]
+    XCTAssertEqual(draft["schema"] as? String, "devgraph.access-draft.v8")
+    let row = (draft["read_grants"] as! [[String: Any]])[0]
+    XCTAssertEqual(row["all_arenas"] as? Bool, true); XCTAssertNil(row["arena_ids"])
+    choice.allArenas = false; choice.arenaIDs = ["existing"]
+    let path = try WorkResourcePath(path: ["Arena/existing"])
+    let fixed = try compile([choice], ceiling: ceiling, recipient: recipient,
+      scopes: [WorkScopeOption(resource_path: path, resource: "Arena/existing", title: "Existing", parent: nil)])["read"] as! [String: Any]
+    XCTAssertEqual(fixed["schema"] as? String, "devgraph.access-draft.v6")
+    XCTAssertNil((fixed["read_grants"] as! [[String: Any]])[0]["all_arenas"])
+    ceiling["schema"] = "devgraph.access-draft.v6"
+    ceiling["read_grants"] = [["scope": "devgraph.arena.read", "arena_ids": ["existing"]]]
+    choice.allArenas = true; choice.arenaIDs = []
+    XCTAssertThrowsError(try compile([choice], ceiling: ceiling, recipient: recipient))
+  }
+  func testDynamicArenaAndFixedWorkRulesKeepNewSchemaInEitherOrder() throws {
+    var (ceiling, recipient) = try context()
+    ceiling["schema"] = "devgraph.access-draft.v7"
+    var grants = ceiling["read_grants"] as! [[String: Any]]
+    grants.append(["scope": "devgraph.arena.read", "all_arenas": true])
+    ceiling["read_grants"] = grants
+    var dynamic = NativeGrantChoice(); dynamic.wholeGraph = true; dynamic.allArenas = true
+    var work = NativeGrantChoice(); work.wholeGraph = true; work.kinds = ["Task"]; work.reads = ["get"]
+    for rules in [[dynamic, work], [work, dynamic]] {
+      let draft = try compile(rules, ceiling: ceiling, recipient: recipient)["read"] as! [String: Any]
+      XCTAssertEqual(draft["schema"] as? String, "devgraph.access-draft.v8")
+      let rows = draft["read_grants"] as! [[String: Any]]
+      XCTAssertEqual(rows.count, 2)
+      XCTAssertEqual(rows.filter { $0["all_arenas"] as? Bool == true }.count, 1)
+      XCTAssertEqual(rows.filter { $0["scope"] as? String == "devgraph.work.read" }.count, 1)
+    }
+  }
   @MainActor func testSwitchingRulesPreservesSelectionsAndExactIDTyping() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

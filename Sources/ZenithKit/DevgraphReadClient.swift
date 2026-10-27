@@ -68,11 +68,12 @@ public struct WorkReadGrant: Codable, Sendable, Equatable {
   public let work_kinds: [String]
   public let work_ids: [String]?
   public let arena_ids: [String]?
+  public let all_arenas: Bool?
   public let include_archived: Bool
   public var isArena: Bool { scope == "devgraph.arena.read" }
   var operationPrefix: String { isArena ? "devgraph.arena." : "devgraph.work." }
   enum CodingKeys: String, CodingKey {
-    case schema, resource_paths, scope, operations, relationship_types, work_kinds, work_ids, arena_ids, include_archived
+    case schema, resource_paths, scope, operations, relationship_types, work_kinds, work_ids, arena_ids, all_arenas, include_archived
   }
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -81,6 +82,7 @@ public struct WorkReadGrant: Codable, Sendable, Equatable {
     resource_paths = try c.decodeIfPresent([WorkResourcePath].self, forKey: .resource_paths)
     work_ids = try c.decodeIfPresent([String].self, forKey: .work_ids)
     arena_ids = try c.decodeIfPresent([String].self, forKey: .arena_ids)
+    all_arenas = try c.decodeIfPresent(Bool.self, forKey: .all_arenas)
     if scope == "devgraph.arena.read" {
       operations = try c.decodeIfPresent([String].self, forKey: .operations) ?? ["list", "get"]
       relationship_types = []; work_kinds = []; include_archived = false
@@ -93,7 +95,14 @@ public struct WorkReadGrant: Codable, Sendable, Equatable {
   }
   func validate(protocol version: WorkReadProtocol = .nativeV2) throws {
     if isArena {
-      guard version == .arenaV5, schema == nil, resource_paths == nil, work_ids == nil,
+      if all_arenas != nil {
+        guard version == .collectionArenaV6, all_arenas == true, arena_ids == nil, schema == nil,
+          resource_paths == nil, work_ids == nil, !operations.isEmpty,
+          Set(operations).isSubset(of: ["list", "get"]), Set(operations).count == operations.count
+        else { throw WalletFailure.core("unsupported_read_scope") }
+        return
+      }
+      guard version.supportsArena, schema == nil, resource_paths == nil, work_ids == nil,
         let ids = arena_ids, !ids.isEmpty, ids.count <= 256, Set(ids).count == ids.count,
         ids.allSatisfy(validWorkID), !operations.isEmpty,
         Set(operations).isSubset(of: ["list", "get"]), Set(operations).count == operations.count
@@ -101,7 +110,7 @@ public struct WorkReadGrant: Codable, Sendable, Equatable {
       return
     }
     if let paths = resource_paths {
-      guard [.pathV4, .arenaV5].contains(version), schema == "devgraph.path-read-grant.v1", !paths.isEmpty,
+      guard [.pathV4, .arenaV5, .collectionArenaV6].contains(version), schema == "devgraph.path-read-grant.v1", !paths.isEmpty,
         paths.count <= 16, Set(paths).count == paths.count
       else { throw WalletFailure.core("unsupported_read_scope") }
       for path in paths { try path.validate() }
@@ -109,7 +118,7 @@ public struct WorkReadGrant: Codable, Sendable, Equatable {
       throw WalletFailure.core("unsupported_read_scope")
     }
 
-    guard scope == "devgraph.work.read", !operations.isEmpty,
+    guard all_arenas == nil, scope == "devgraph.work.read", !operations.isEmpty,
       Set(operations).isSubset(of: version.operations), Set(operations).count == operations.count,
       !work_kinds.isEmpty,
       Set(work_kinds).isSubset(of: version.workKinds),
@@ -431,7 +440,8 @@ public final class DevgraphReadClient: @unchecked Sendable {
   public func arenas(after: String? = nil) async throws -> ArenaPage {
     let access = try await manifest()
     let ids = Set(access.read_grants.filter { $0.isArena && $0.operations.contains("list") }.flatMap { $0.arena_ids ?? [] })
-    guard access.readProtocol == .arenaV5, !ids.isEmpty, after.map(validWorkID) ?? true else {
+    let dynamic = access.read_grants.contains { $0.isArena && $0.all_arenas == true && $0.operations.contains("list") }
+    guard access.readProtocol.supportsArena, dynamic || !ids.isEmpty, after.map(validWorkID) ?? true else {
       throw WalletFailure.core("unsupported_read_scope")
     }
     let path = "/arenas?limit=20" + (after.map { "&after_id=" + $0 } ?? "")
@@ -441,15 +451,15 @@ public final class DevgraphReadClient: @unchecked Sendable {
     for row in rows { try row.validate() }
     let keys = rows.map(\.id)
     guard keys.count <= 20, keys == keys.sorted(), Set(keys).count == keys.count,
-      Set(keys).isSubset(of: ids), after.map({ a in keys.allSatisfy { $0 > a } }) ?? true else {
+      (dynamic || Set(keys).isSubset(of: ids)), after.map({ a in keys.allSatisfy { $0 > a } }) ?? true else {
       throw WalletFailure.core("invalid_response")
     }
     return ArenaPage(items: rows, next: rows.count == 20 ? rows.last?.id : nil)
   }
   public func arena(id: String) async throws -> ArenaRecord {
     let access = try await manifest()
-    guard access.readProtocol == .arenaV5, validWorkID(id), access.read_grants.contains(where: {
-      $0.isArena && $0.operations.contains("get") && ($0.arena_ids ?? []).contains(id)
+    guard access.readProtocol.supportsArena, validWorkID(id), access.read_grants.contains(where: {
+      $0.isArena && $0.operations.contains("get") && ($0.all_arenas == true || ($0.arena_ids ?? []).contains(id))
     }) else { throw WalletFailure.core("unsupported_read_scope") }
     let data = try await read(operation: "arena.get", parameters: ["path": "/arenas/" + id], protocol: access.readProtocol)
     let row = try JSONDecoder().decode(ArenaRecord.self, from: data)
@@ -460,8 +470,8 @@ public final class DevgraphReadClient: @unchecked Sendable {
   public func arenaMembers(id: String, after: WorkPageCursor? = nil) async throws -> WorkPage {
     let access = try await manifest()
     let kinds = Set(access.read_grants.filter { !$0.isArena && $0.operations.contains("list") }.flatMap(\.work_kinds))
-    guard access.readProtocol == .arenaV5, validWorkID(id), !kinds.isEmpty,
-      access.read_grants.contains(where: { $0.isArena && $0.operations.contains("get") && ($0.arena_ids ?? []).contains(id) })
+    guard access.readProtocol.supportsArena, validWorkID(id), !kinds.isEmpty,
+      access.read_grants.contains(where: { $0.isArena && $0.operations.contains("get") && ($0.all_arenas == true || ($0.arena_ids ?? []).contains(id)) })
     else { throw WalletFailure.core("unsupported_read_scope") }
     var path = "/arenas/" + id + "/members?limit=20"
     if let after {
@@ -536,7 +546,13 @@ func parseGrants(_ value: Any?, protocol version: WorkReadProtocol, holder: Bool
   }
   for value in values {
     if value["scope"] as? String == "devgraph.arena.read" {
-      guard version == .arenaV5,
+      if value["all_arenas"] != nil {
+        guard version == .collectionArenaV6,
+          Set(value.keys) == ["scope", "all_arenas"] || holder && Set(value.keys) == ["scope", "all_arenas", "operations"]
+        else { throw WalletFailure.core("unsupported_read_scope") }
+        continue
+      }
+      guard version.supportsArena,
         Set(value.keys) == ["scope", "arena_ids"] || holder && Set(value.keys) == ["scope", "arena_ids", "operations"]
       else { throw WalletFailure.core("unsupported_read_scope") }
       continue
@@ -547,7 +563,7 @@ func parseGrants(_ value: Any?, protocol version: WorkReadProtocol, holder: Bool
     guard base.isSubset(of: Set(value.keys)),
       Set(value.keys).isSubset(
         of: base.union(["work_ids", "arena_ids"]).union(
-          [.pathV4, .arenaV5].contains(version) ? ["schema", "resource_paths"] : []))
+          [.pathV4, .arenaV5, .collectionArenaV6].contains(version) ? ["schema", "resource_paths"] : []))
     else { throw WalletFailure.core("invalid_response") }
   }
   let grants = try JSONDecoder().decode(
@@ -745,7 +761,7 @@ extension DevgraphReadClient {
       throw WalletFailure.core("invalid_holder_credential")
     }
     let converted = try holderReadConstraints(permissions)
-    let version: WorkReadProtocol = converted.contains { $0["scope"] as? String == "devgraph.arena.read" } ? .arenaV5 : .pathV4
+    let version: WorkReadProtocol = converted.contains { $0["all_arenas"] as? Bool == true } ? .collectionArenaV6 : converted.contains { $0["scope"] as? String == "devgraph.arena.read" } ? .arenaV5 : .pathV4
     let grants = try parseGrants(converted, protocol: version, holder: true)
     let manifest: [String: Any] = [
       "schema": "devgraph.native-read-manifest.v2",
@@ -781,9 +797,12 @@ func holderReadConstraints(_ permissions: [[String: Any]]) throws -> [[String: A
         throw WalletFailure.core("invalid_holder_scope")
       }
       if arena {
-        guard !roots.isEmpty, let ids = c["arena_ids"] as? [String],
-          roots.allSatisfy({ $0.count == 1 && $0[0]["kind"] == "Arena" && ids.contains($0[0]["id"] ?? "") })
+        let dynamic = c["all_arenas"] as? Bool == true
+        let ids = c["arena_ids"] as? [String] ?? []
+        guard !roots.isEmpty,
+          roots.allSatisfy({ $0.count == 1 && $0[0]["kind"] == "Arena" && (dynamic || ids.contains($0[0]["id"] ?? "")) })
         else { throw WalletFailure.core("invalid_holder_scope") }
+        c.removeValue(forKey: "all_arenas")
         c["arena_ids"] = Array(Set(roots.compactMap { $0.first?["id"] })).sorted()
       } else {
       c["resource_paths"] = try roots.map { root in

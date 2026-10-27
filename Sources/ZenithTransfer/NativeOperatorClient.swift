@@ -67,7 +67,7 @@ struct NativeOperatorInbox {
   }
   func actionSchema(writes: Bool) -> String? {
     let value = activation[writes ? "write_action_schema" : "read_action_schema"] as? String
-    let allowed = writes ? ["devgraph.access-operator-action.v3", "devgraph.access-operator-action.v5", "devgraph.access-operator-action.v7", "devgraph.access-operator-action.v9"] : ["devgraph.access-operator-action.v2", "devgraph.access-operator-action.v4", "devgraph.access-operator-action.v6", "devgraph.access-operator-action.v8"]
+    let allowed = writes ? ["devgraph.access-operator-action.v3", "devgraph.access-operator-action.v5", "devgraph.access-operator-action.v7", "devgraph.access-operator-action.v9", "devgraph.access-operator-action.v13"] : ["devgraph.access-operator-action.v2", "devgraph.access-operator-action.v4", "devgraph.access-operator-action.v6", "devgraph.access-operator-action.v8", "devgraph.access-operator-action.v12"]
     return value.flatMap { allowed.contains($0) ? $0 : nil }
   }
 }
@@ -147,9 +147,9 @@ struct NativeOperatorInbox {
   }
   static func assignmentDigest(_ action: [String: Any]) throws -> Any {
     let schema = action["schema"] as? String ?? "", s = action["selection"] as? [String: Any] ?? [:]
-    if s["read"] != nil && s["write"] != nil && ["devgraph.access-operator-action.v5", "devgraph.access-operator-action.v7", "devgraph.access-operator-action.v9"].contains(schema) { return try GrantJSON.digest(s) }
-    if let write = s["write"], ["devgraph.access-operator-action.v3", "devgraph.access-operator-action.v5", "devgraph.access-operator-action.v7", "devgraph.access-operator-action.v9"].contains(schema) { return try GrantJSON.digest(write) }
-    if let read = s["read"], ["devgraph.access-operator-action.v2", "devgraph.access-operator-action.v4", "devgraph.access-operator-action.v6", "devgraph.access-operator-action.v8"].contains(schema) { return try GrantJSON.digest(read) }
+    if s["read"] != nil && s["write"] != nil && ["devgraph.access-operator-action.v5", "devgraph.access-operator-action.v7", "devgraph.access-operator-action.v9", "devgraph.access-operator-action.v13"].contains(schema) { return try GrantJSON.digest(s) }
+    if let write = s["write"], ["devgraph.access-operator-action.v3", "devgraph.access-operator-action.v5", "devgraph.access-operator-action.v7", "devgraph.access-operator-action.v9", "devgraph.access-operator-action.v13"].contains(schema) { return try GrantJSON.digest(write) }
+    if let read = s["read"], ["devgraph.access-operator-action.v2", "devgraph.access-operator-action.v4", "devgraph.access-operator-action.v6", "devgraph.access-operator-action.v8", "devgraph.access-operator-action.v12"].contains(schema) { return try GrantJSON.digest(read) }
     return NSNull()
   }
   func loadInbox(after: String? = nil, allowAuthorizationUpdate: Bool = true) async throws -> [String: Any] {

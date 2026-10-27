@@ -13,12 +13,14 @@ import ZenithKit
     let id = UUID()
     var choice = NativeGrantChoice()
     var scopeMode = "choose"
+    var futureArenaMode = false
     var arenaReadEnabled = false
     var exactIDText: [String: String] = [:]
   }
   @Published var ruleDrafts: [RuleDraft] = []
   @Published var ruleIndex = 0
   @Published var exactIDText: [String: String] = [:]
+  @Published var futureArenaMode = false
   @Published var arenaReadEnabled = false
   @Published var presetID = "custom"
   @Published var recipeNotice: String?
@@ -84,7 +86,7 @@ import ZenithKit
   func select(_ item: NativeGrantRecipient) {
     guard !busy, state == .idle, let inbox else { return }
     selected = item; review = nil; presetID = "custom"; presetReference = nil; recipeNotice = nil
-    choice = NativeGrantChoice(); exactIDText = [:]; arenaReadEnabled = false; scopeMode = "choose"; expanded = []
+    choice = NativeGrantChoice(); exactIDText = [:]; futureArenaMode = false; arenaReadEnabled = false; scopeMode = "choose"; expanded = []
     choice.kinds = Set(inbox.permissions.kinds).intersection(["Initiative", "Project", "Issue", "Task", "Todo", "Proposal"])
     choice.untilRevoked = inbox.permissions.validity.notAfter == nil
     if let end = inbox.permissions.validity.notAfter { choice.expiry = Date(timeIntervalSince1970: Double(end)) }
@@ -116,6 +118,7 @@ import ZenithKit
   func editedPermissions() { review = nil; presetID = "custom"; presetReference = nil; recipeNotice = nil }
   func changeScope(_ value: String) {
     scopeMode = value; choice.wholeGraph = value == "global"
+    if value != "global" { futureArenaMode = false }
     if value != "paths" { choice.paths = [] }
     choice.exactResources = value == "exact" ? Dictionary(uniqueKeysWithValues: choice.kinds.map { ($0, Set<String>()) }) : nil
     exactIDText = [:]
@@ -124,6 +127,7 @@ import ZenithKit
   func storeRule() {
     guard ruleDrafts.indices.contains(ruleIndex) else { return }
     ruleDrafts[ruleIndex].choice = choice; ruleDrafts[ruleIndex].scopeMode = scopeMode
+    ruleDrafts[ruleIndex].futureArenaMode = futureArenaMode
     ruleDrafts[ruleIndex].arenaReadEnabled = arenaReadEnabled
     ruleDrafts[ruleIndex].exactIDText = exactIDText
   }
@@ -132,7 +136,7 @@ import ZenithKit
     storeRule(); let validity = choice
     ruleIndex = index; choice = ruleDrafts[index].choice
     choice.untilRevoked = validity.untilRevoked; choice.expiry = validity.expiry
-    scopeMode = ruleDrafts[index].scopeMode; arenaReadEnabled = ruleDrafts[index].arenaReadEnabled; exactIDText = ruleDrafts[index].exactIDText
+    futureArenaMode = ruleDrafts[index].futureArenaMode; scopeMode = ruleDrafts[index].scopeMode; arenaReadEnabled = ruleDrafts[index].arenaReadEnabled; exactIDText = ruleDrafts[index].exactIDText
     review = nil; expanded = []; editedPermissions()
   }
   func addRule() {
@@ -147,7 +151,7 @@ import ZenithKit
     ruleDrafts.remove(at: ruleIndex); ruleIndex = min(ruleIndex, ruleDrafts.count - 1)
     let old = choice; choice = ruleDrafts[ruleIndex].choice
     choice.untilRevoked = old.untilRevoked; choice.expiry = old.expiry
-    scopeMode = ruleDrafts[ruleIndex].scopeMode; arenaReadEnabled = ruleDrafts[ruleIndex].arenaReadEnabled; exactIDText = ruleDrafts[ruleIndex].exactIDText
+    futureArenaMode = ruleDrafts[ruleIndex].futureArenaMode; scopeMode = ruleDrafts[ruleIndex].scopeMode; arenaReadEnabled = ruleDrafts[ruleIndex].arenaReadEnabled; exactIDText = ruleDrafts[ruleIndex].exactIDText
     editedPermissions()
   }
   var permissionRules: [NativeGrantChoice] {
@@ -159,7 +163,7 @@ import ZenithKit
   }
   func ruleSummary(_ index: Int) -> String {
     let rule = index == ruleIndex ? choice : ruleDrafts[index].choice
-    return "Rule \(index + 1) · \(rule.reads.count + (rule.arenaIDs.isEmpty ? 0 : 1)) read · \(rule.writes.count) write · " +
+    return "Rule \(index + 1) · \(rule.reads.count + (rule.arenaIDs.isEmpty && !rule.allArenas ? 0 : 1)) read · \(rule.writes.count) write · " +
       (rule.wholeGraph ? "all permitted" : rule.exactResources != nil ? "exact IDs" : "\(rule.paths.count) branches")
   }
   func setKind(_ kind: String, enabled: Bool) {
@@ -175,7 +179,15 @@ import ZenithKit
   var coveredArenaIDs: Set<String> {
     NativeGrantSelection.arenaCoverage(choice, available: inbox?.permissions.arenaIDs ?? [])
   }
-  private func updateArenaCoverage() { choice.arenaIDs = arenaReadEnabled ? coveredArenaIDs : [] }
+  var canReadFutureArenas: Bool { inbox?.permissions.allArenas == true && inbox?.activation["future_arena_reads"] as? Bool == true }
+  func setFutureArenaMode(_ enabled: Bool) {
+    guard !enabled || canReadFutureArenas && choice.wholeGraph else { return }
+    futureArenaMode = enabled; updateArenaCoverage(); editedPermissions()
+  }
+  private func updateArenaCoverage() {
+    choice.allArenas = arenaReadEnabled && futureArenaMode && choice.wholeGraph && canReadFutureArenas
+    choice.arenaIDs = arenaReadEnabled && !choice.allArenas ? coveredArenaIDs : []
+  }
   func setArenaRead(_ enabled: Bool) {
     arenaReadEnabled = enabled; updateArenaCoverage(); editedPermissions()
   }
@@ -191,8 +203,9 @@ import ZenithKit
     run { [self] in
       guard let inbox, let selected, let client else { throw NativeGrantError.invalid }
       let rules = permissionRules
+      if rules.contains(where: { $0.allArenas }) && !canReadFutureArenas { throw NativeGrantError.permissions }
       if rules.contains(where: { !$0.writes.isEmpty }) && inbox.activation["write"] as? Bool == false { throw NativeGrantError.permissions }
-      if rules.contains(where: { !$0.reads.isEmpty || !$0.arenaIDs.isEmpty }) && rules.contains(where: { !$0.writes.isEmpty }) && inbox.activation["mixed"] as? Bool == false { throw NativeGrantError.permissions }
+      if rules.contains(where: { !$0.reads.isEmpty || !$0.arenaIDs.isEmpty || $0.allArenas }) && rules.contains(where: { !$0.writes.isEmpty }) && inbox.activation["mixed"] as? Bool == false { throw NativeGrantError.permissions }
       let selection = try NativeGrantSelection.makeRules(ceiling: inbox.ceiling, ceilingDigest: inbox.digest,
         recipient: selected, rules: rules, scopes: inbox.scopes, preset: ruleDrafts.count == 1 ? presetReference : nil, now: client.now)
       var action = try selectionAction("review", selection: selection)
@@ -501,7 +514,7 @@ struct ResolvedTransferOperatorView: View {
         permissionChoices(inbox)
         validityChoices(inbox)
         Button("Review exact selection in Wallet") { editor.reviewSelection() }.buttonStyle(TransferPrimaryButtonStyle())
-          .disabled(!unlocked || !editing || editor.permissionRules.allSatisfy { $0.reads.isEmpty && $0.writes.isEmpty && $0.arenaIDs.isEmpty })
+          .disabled(!unlocked || !editing || editor.permissionRules.allSatisfy { $0.reads.isEmpty && $0.writes.isEmpty && $0.arenaIDs.isEmpty && !$0.allArenas })
           .disabled(editor.choice.arenaIDs.count > 256)
       }
       DisclosureGroup("Decline request") {
@@ -536,19 +549,19 @@ struct ResolvedTransferOperatorView: View {
           }
         }
       }
-      if !inbox.permissions.arenaIDs.isEmpty {
+      if !inbox.permissions.arenaIDs.isEmpty || editor.canReadFutureArenas {
         Toggle(isOn: Binding(get: { editor.arenaReadEnabled }, set: editor.setArenaRead)) {
           VStack(alignment: .leading, spacing: 3) {
             Text("List and read Arena records")
-            Text("Applies only to the Arena coverage shown in Scope. The current protocol combines listing and reading details.")
+            Text(editor.futureArenaMode ? "All current and future Arena records. This grants no Work access or administration." : "Applies only to the Arena coverage shown in Scope. Listing and reading details are combined.")
               .font(.caption).foregroundStyle(.secondary)
-            if editor.coveredArenaIDs.count > 256 {
+            if !editor.futureArenaMode && editor.coveredArenaIDs.count > 256 {
               Text("The current protocol accepts at most 256 Arena records. Select narrower hierarchy branches before review.")
                 .font(.caption).foregroundStyle(.secondary)
             }
           }
         }
-        .disabled(editor.coveredArenaIDs.isEmpty && !editor.arenaReadEnabled)
+        .disabled(editor.coveredArenaIDs.isEmpty && !editor.futureArenaMode && !editor.arenaReadEnabled)
       } else {
         Text("No Arena records are available within this administrator’s permissions.").font(.caption).foregroundStyle(.secondary)
       }
@@ -616,7 +629,11 @@ struct ResolvedTransferOperatorView: View {
       } else if editor.scopeMode == "global" {
         Text("This explicitly selects all resources available under the server’s rules, including future matching work. The exact review retains any server-imposed limits.").font(.callout).foregroundStyle(.secondary)
       }
-      if editor.scopeMode != "choose", !inbox.permissions.arenaIDs.isEmpty {
+      if editor.scopeMode == "global", editor.canReadFutureArenas {
+        Toggle("Arena records: all current and future Arenas", isOn: Binding(get: { editor.futureArenaMode }, set: editor.setFutureArenaMode))
+        Text("A live collection selector, evaluated at every access. Enable its read action below to grant Arena record access. Fixed-ID selections remain fixed.").font(.caption).foregroundStyle(.secondary)
+      }
+      if editor.scopeMode != "choose", !editor.futureArenaMode, !inbox.permissions.arenaIDs.isEmpty {
         DisclosureGroup("Arena record coverage · \(editor.coveredArenaIDs.count)") {
           ForEach(editor.coveredArenaIDs.sorted(), id: \.self) { id in
             Text(inbox.scopes.first { $0.resource == "Arena/" + id }?.title ?? id)
@@ -722,7 +739,7 @@ struct NativeGrantReview: View {
           let grants = draft[mode == "read" ? "read_grants" : "write_grants"] as? [[String: Any]] ?? []
           ForEach(Array(grants.enumerated()), id: \.offset) { _, grant in
             VStack(alignment: .leading, spacing: 8) {
-              if grant["scope"] as? String == "devgraph.arena.read" { Text("List and read Arena records").font(.headline) }
+              if grant["scope"] as? String == "devgraph.arena.read" { Text(grant["all_arenas"] as? Bool == true ? "List and read all current and future Arena records" : "List and read selected Arena records").font(.headline) }
               if let ops = grant["operations"] as? [String] { Text("Read: " + ops.joined(separator: ", ")) }
               if let op = grant["operation"] as? String { Text(DevGraphPermissionCatalog.writes.first { $0.id == op }?.title ?? op) }
               if let paths = try? NativeGrantSelection.paths(grant), !paths.isEmpty {

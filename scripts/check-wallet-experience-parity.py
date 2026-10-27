@@ -18,6 +18,8 @@ paths = [
     'Sources/ZenithKit/HolderGrants.swift',
     'Sources/ZenithKit/WalletGrantsView.swift',
     'Sources/ZenithKit/DevgraphReadClient.swift',
+    'Sources/ZenithKit/WorkReadProtocol.swift',
+    'Tests/ZenithKitTests/FutureArenaReadTests.swift',
     'Sources/ZenithKit/WorkAccessRequest.swift',
     'Sources/ZenithKit/WorkMembershipRequirement.swift',
     'Sources/ZenithKit/PrivateNetwork.swift',

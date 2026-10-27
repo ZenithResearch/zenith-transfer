@@ -1,6 +1,6 @@
 # Resource-scoped permission rules in Transfer
 
-Transfer 52 adds independent permission rules to the native credential editor.
+Transfer 53 adds independent permission rules to the native credential editor.
 Choose a rule's preset or custom actions, Scope, Read permissions and Write
 permissions. Add another rule for a different hierarchy or action set. One
 Validity applies to the complete reviewed assignment.
@@ -12,7 +12,10 @@ current and future descendants; unchecking a child is not an exclusion.
 
 Scope supports verified hierarchy branches, exact resource IDs, or explicitly
 all resources permitted by the provider's existing rules. Arena records follow
-verified Arena anchors and are issued as exact IDs. Reading an Arena does not
+verified Arena anchors for fixed-ID grants. With a compatible server and an
+all-Arena ceiling, Scope can instead select “Arena records: all current and
+future Arenas.” This stores a live collection selector, including future records,
+without widening existing fixed-ID grants. Reading an Arena does not
 grant sibling Work access. Creation, proposals, decisions and review evidence
 cannot silently inherit a Work hierarchy wildcard. Every resource touched by a
 move, relationship, decision or review still needs the matching operation.
