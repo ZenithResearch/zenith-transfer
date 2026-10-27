@@ -5,6 +5,55 @@ import XCTest
 @testable import ZenithTransfer
 
 final class NativeGrantSelectionTests: XCTestCase {
+  func testArenaRecordAuthorityCannotEscapeSelectedHierarchy() throws {
+    let f = try fixtures()[0]
+    var ceiling = f["ceiling"] as! [String: Any]
+    ceiling["schema"] = "devgraph.access-draft.v6"
+    ceiling.removeValue(forKey: "not_before"); ceiling.removeValue(forKey: "not_after")
+    ceiling["validity"] = ["schema": "castalia.grant-validity.v1", "mode": "until_revoked", "not_before": 1]
+    ceiling["read_grants"] = [["scope": "devgraph.arena.read", "arena_ids": ["one", "two"]]]
+    let path = try WorkResourcePath(path: ["Arena/one", "Project/project"])
+    let scopes = [WorkScopeOption(resource_path: path, resource: "Project/project", title: "Project", parent: nil)]
+    var choice = NativeGrantChoice(); choice.paths = [path]; choice.arenaIDs = ["one"]
+    func make() throws -> [String: Any] {
+      try NativeGrantSelection.make(ceiling: ceiling, ceilingDigest: GrantJSON.digest(ceiling),
+        recipient: NativeGrantRecipient(f["recipient"] as! [String: Any]), choice: choice, scopes: scopes, now: f["now"] as! Int)
+    }
+    let selected = try make()["read"] as! [String: Any]
+    let grants = selected["read_grants"] as! [[String: Any]]
+    XCTAssertEqual(grants.count, 1)
+    XCTAssertEqual(grants[0]["arena_ids"] as? [String], ["one"])
+    XCTAssertNil(grants[0]["work_kinds"], "Arena metadata must not grant sibling Work")
+    choice.arenaIDs = ["two"]
+    XCTAssertThrowsError(try make(), "An allowed Arena outside this selected scope must still be rejected")
+    choice.wholeGraph = true; choice.paths = []
+    XCTAssertNoThrow(try make(), "Global coverage can explicitly select the second Arena")
+  }
+  func testStandaloneWorkScopeDoesNotInferArenaRecordAccess() throws {
+    var choice = NativeGrantChoice()
+    choice.paths = [try WorkResourcePath(path: ["Project/standalone"])]
+    XCTAssertTrue(NativeGrantSelection.arenaCoverage(choice, available: ["one", "two"]).isEmpty)
+    choice.paths = [try WorkResourcePath(path: ["Arena/one"]), try WorkResourcePath(path: ["Arena/two", "Project/project"])]
+    XCTAssertEqual(NativeGrantSelection.arenaCoverage(choice, available: ["one"]), ["one"])
+    choice.paths = []
+    XCTAssertTrue(NativeGrantSelection.arenaCoverage(choice, available: ["one"]).isEmpty)
+  }
+  func testAllArenaScopeCannotExceedMemberWireLimit() throws {
+    let f = try fixtures()[0]
+    var ceiling = f["ceiling"] as! [String: Any]
+    ceiling["schema"] = "devgraph.access-draft.v7"
+    ceiling.removeValue(forKey: "not_before"); ceiling.removeValue(forKey: "not_after")
+    ceiling["validity"] = ["schema": "castalia.grant-validity.v1", "mode": "until_revoked", "not_before": 1]
+    ceiling["read_grants"] = [["scope": "devgraph.arena.read", "all_arenas": true]]
+    let scopes = try (0..<257).map { index in
+      WorkScopeOption(resource_path: try WorkResourcePath(path: ["Arena/arena-\(index)"]),
+        resource: "Arena/arena-\(index)", title: "Arena", parent: nil)
+    }
+    var choice = NativeGrantChoice(); choice.wholeGraph = true
+    choice.arenaIDs = NativeGrantSelection.arenaCoverage(choice, available: (0..<257).map { "arena-\($0)" })
+    XCTAssertThrowsError(try NativeGrantSelection.make(ceiling: ceiling, ceilingDigest: GrantJSON.digest(ceiling),
+      recipient: NativeGrantRecipient(f["recipient"] as! [String: Any]), choice: choice, scopes: scopes, now: f["now"] as! Int))
+  }
   private func fixtures() throws -> [[String: Any]] {
     let url = try XCTUnwrap(Bundle.module.url(forResource: "native-grants", withExtension: "json", subdirectory: "Fixtures"))
     return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [[String: Any]])

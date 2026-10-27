@@ -1,3 +1,10 @@
+## Scope and permission grouping — build 51 candidate
+
+- Put hierarchy coverage and object kinds in Scope, followed by read/write actions.
+- Derive Arena-record reads from that scope and reject stale out-of-scope Arena selections.
+- Audit canonical operation coverage and document the remaining eight named mutation gaps.
+- Plan independent action/resource rules and Canadian government/defence control alignment without changing installed authority.
+
 ## Wallet sheet navigation — build38
 
 ## Network onboarding · Transfer 39

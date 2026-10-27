@@ -190,6 +190,14 @@ struct NativeGrantChoice: Equatable {
 }
 
 enum NativeGrantSelection {
+  /// Arena metadata follows the same selected hierarchy as Work. A standalone
+  /// Initiative/Project path does not imply authority to read an unknown Arena.
+  static func arenaCoverage(_ choice: NativeGrantChoice, available: [String]) -> Set<String> {
+    if choice.wholeGraph && choice.paths.isEmpty { return Set(available) }
+    guard !choice.wholeGraph, !choice.paths.isEmpty else { return [] }
+    let anchors = Set(choice.paths.flatMap(\.path).filter { $0.hasPrefix("Arena/") }.map { String($0.dropFirst(6)) })
+    return Set(available).intersection(anchors)
+  }
   static func narrow(_ parent: [WorkResourcePath], _ child: [WorkResourcePath]) throws -> [WorkResourcePath] {
     if parent.isEmpty { return child }; if child.isEmpty { return parent }
     var result: [WorkResourcePath] = []
@@ -223,6 +231,8 @@ enum NativeGrantSelection {
       Set(choice.kinds).isSubset(of: Set(available.kinds)),
       choice.reads.isEmpty && choice.writes.isEmpty || !choice.kinds.isEmpty,
       Set(choice.arenaIDs).isSubset(of: Set(available.arenaIDs)),
+      choice.arenaIDs.count <= 256,
+      Set(choice.arenaIDs).isSubset(of: arenaCoverage(choice, available: available.arenaIDs)),
       !choice.reads.isEmpty || !choice.writes.isEmpty || !choice.arenaIDs.isEmpty else { throw NativeGrantError.permissions }
     guard choice.wholeGraph ? choice.paths.isEmpty : !choice.paths.isEmpty else { throw NativeGrantError.scope }
     let selectedPaths = try WorkScopeSelection.normalized(choice.paths)

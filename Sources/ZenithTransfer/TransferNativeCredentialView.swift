@@ -9,6 +9,7 @@ import ZenithKit
   @Published var inbox: NativeOperatorInbox?
   @Published var selected: NativeGrantRecipient?
   @Published var choice = NativeGrantChoice()
+  @Published var arenaReadEnabled = false
   @Published var presetID = "custom"
   @Published var recipeNotice: String?
   @Published var scopeMode = "choose"
@@ -72,7 +73,7 @@ import ZenithKit
   func select(_ item: NativeGrantRecipient) {
     guard !busy, state == .idle, let inbox else { return }
     selected = item; review = nil; presetID = "custom"; presetReference = nil; recipeNotice = nil
-    choice = NativeGrantChoice(); scopeMode = "choose"; expanded = []
+    choice = NativeGrantChoice(); arenaReadEnabled = false; scopeMode = "choose"; expanded = []
     choice.kinds = Set(inbox.permissions.kinds).intersection(["Initiative", "Project", "Issue", "Task", "Todo", "Proposal"])
     choice.untilRevoked = inbox.permissions.validity.notAfter == nil
     if let end = inbox.permissions.validity.notAfter { choice.expiry = Date(timeIntervalSince1970: Double(end)) }
@@ -84,6 +85,7 @@ import ZenithKit
     presetID = id; presetReference = nil; review = nil
     let reads: [String], writes: [String]
     choice.arenaIDs = []
+    arenaReadEnabled = library.available.first { "local:" + $0.id == id }?.arenaRead == true
     if id.hasPrefix("server:"), let recipe = inbox.catalog?.presets.first(where: { "server:" + $0.id == id }) {
       reads = recipe.read_operations; writes = recipe.write_operations
       presetReference = ["id": recipe.id, "version": recipe.version, "catalog_digest_sha256": inbox.catalog!.catalog_digest_sha256]
@@ -96,16 +98,25 @@ import ZenithKit
     if inbox.activation["write"] as? Bool == false { choice.writes = [] }
     if !choice.paths.isEmpty { choice.writes.remove("devgraph.work.create.v2") }
     let omitted = Set(reads).subtracting(choice.reads).count + Set(writes).subtracting(choice.writes).count
-    recipeNotice = (library.available.first { "local:" + $0.id == id }?.arenaRead == true ? "Select the Arena records below. " : "") + (omitted > 0 ? "\(omitted) recipe permissions are unavailable for this server or path. Only the checked permissions will be reviewed." : "This recipe selects actions only. Choose resource coverage separately.")
+    updateArenaCoverage()
+    recipeNotice = (arenaReadEnabled ? "Arena reads follow the selected scope. " : "") + (omitted > 0 ? "\(omitted) recipe permissions are unavailable for this server or path. Only the checked permissions will be reviewed." : "This recipe selects actions only. Choose scope separately.")
   }
   func editedPermissions() { review = nil; presetID = "custom"; presetReference = nil; recipeNotice = nil }
   func changeScope(_ value: String) {
     scopeMode = value; choice.wholeGraph = value == "global"
-    if value != "paths" { choice.paths = [] }; review = nil
+    if value != "paths" { choice.paths = [] }; updateArenaCoverage(); review = nil
+  }
+  var coveredArenaIDs: Set<String> {
+    NativeGrantSelection.arenaCoverage(choice, available: inbox?.permissions.arenaIDs ?? [])
+  }
+  private func updateArenaCoverage() { choice.arenaIDs = arenaReadEnabled ? coveredArenaIDs : [] }
+  func setArenaRead(_ enabled: Bool) {
+    arenaReadEnabled = enabled; updateArenaCoverage(); editedPermissions()
   }
   func choose(_ row: WorkScopeOption, selected: Bool) {
     do {
       choice.paths = try WorkScopeSelection.normalized(selected ? choice.paths + [row.resource_path] : choice.paths.filter { $0 != row.resource_path })
+      updateArenaCoverage()
       if !choice.paths.isEmpty, choice.writes.remove("devgraph.work.create.v2") != nil {
         recipeNotice = "Creating unattached work is excluded from path grants. The selected existing resources can still be edited."
       }
@@ -410,11 +421,12 @@ struct ResolvedTransferOperatorView: View {
         }
       } else {
         presetPicker(inbox)
-        permissionChoices(inbox)
         scopeChoices(inbox)
+        permissionChoices(inbox)
         validityChoices(inbox)
         Button("Review exact selection in Wallet") { editor.reviewSelection() }.buttonStyle(TransferPrimaryButtonStyle())
           .disabled(!unlocked || !editing || editor.scopeMode == "choose" || editor.choice.reads.isEmpty && editor.choice.writes.isEmpty && editor.choice.arenaIDs.isEmpty)
+          .disabled(editor.choice.arenaIDs.count > 256)
       }
       DisclosureGroup("Decline request") {
         TextField("Reason", text: $editor.declineReason)
@@ -437,8 +449,7 @@ struct ResolvedTransferOperatorView: View {
   private func permissionChoices(_ inbox: NativeOperatorInbox) -> some View {
     VStack(alignment: .leading, spacing: 12) {
       if let notice = editor.recipeNotice { Text(notice).font(.callout).foregroundStyle(.secondary) }
-      Text("Permissions carried by this credential").font(.headline)
-      Text("Work read permissions").font(.subheadline.bold())
+      Text("Read permissions").font(.headline)
       ForEach(inbox.permissions.reads, id: \.self) { op in
         Toggle(isOn: binding(op, reads: true)) {
           VStack(alignment: .leading, spacing: 3) {
@@ -450,38 +461,37 @@ struct ResolvedTransferOperatorView: View {
         }
       }
       if !inbox.permissions.arenaIDs.isEmpty {
-        Text("Arena records").font(.headline)
-        Text("List and read only the checked Arena records. Work coverage is selected separately below.").font(.caption).foregroundStyle(.secondary)
-        ForEach(inbox.permissions.arenaIDs, id: \.self) { id in
-          let label = inbox.scopes.first { $0.resource_path.path.last == "Arena/" + id }?.title ?? id
-          Toggle(label, isOn: Binding(get: { editor.choice.arenaIDs.contains(id) }, set: { on in
-            if on { editor.choice.arenaIDs.insert(id) } else { editor.choice.arenaIDs.remove(id) }
-            editor.editedPermissions()
-          }))
+        Toggle(isOn: Binding(get: { editor.arenaReadEnabled }, set: editor.setArenaRead)) {
+          VStack(alignment: .leading, spacing: 3) {
+            Text("List and read Arena records")
+            Text("Applies only to the Arena coverage shown in Scope. The current protocol combines listing and reading details.")
+              .font(.caption).foregroundStyle(.secondary)
+            if editor.coveredArenaIDs.count > 256 {
+              Text("The current protocol accepts at most 256 Arena records. Select narrower hierarchy branches before review.")
+                .font(.caption).foregroundStyle(.secondary)
+            }
+          }
         }
+        .disabled(editor.coveredArenaIDs.isEmpty && !editor.arenaReadEnabled)
       } else {
         Text("No Arena records are available within this administrator’s permissions.").font(.caption).foregroundStyle(.secondary)
       }
       Label(WorkReadPermission.arenaAvailability, systemImage: "info.circle")
         .font(.caption).foregroundStyle(.secondary)
       let supported = OwnerPermissionPreset.allOperations.filter { inbox.permissions.writes.contains("devgraph.work." + $0 + ".v2") }
+      Text("Write permissions").font(.headline)
       if !supported.isEmpty {
-        Text("Write permissions").font(.headline)
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 12) {
           ForEach(supported, id: \.self) { op in
             Toggle(OwnerPermissionPreset.title(op), isOn: binding("devgraph.work." + op + ".v2", reads: false))
               .disabled(inbox.activation["write"] as? Bool == false || op == "create" && !editor.choice.paths.isEmpty)
           }
         }
+      } else {
+        Text("No supported write permissions are available in this request’s current policy.")
+          .font(.caption).foregroundStyle(.secondary)
       }
       if inbox.activation["mixed"] as? Bool == false { Text("This server requires reads and writes to be approved separately.").font(.caption).foregroundStyle(.secondary) }
-      DisclosureGroup("Limit object kinds") {
-        ForEach(inbox.permissions.kinds, id: \.self) { kind in
-          Toggle(kind, isOn: Binding(get: { editor.choice.kinds.contains(kind) }, set: { on in
-            if on { editor.choice.kinds.insert(kind) } else { editor.choice.kinds.remove(kind) }
-          }))
-        }
-      }
     }
   }
   private func binding(_ op: String, reads: Bool) -> Binding<Bool> {
@@ -493,7 +503,8 @@ struct ResolvedTransferOperatorView: View {
   }
   private func scopeChoices(_ inbox: NativeOperatorInbox) -> some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("Resource coverage").font(.headline)
+      Text("Scope").font(.headline)
+      Text("Choose the resource hierarchy here. The read and write permissions below apply within this scope.").font(.callout).foregroundStyle(.secondary)
       Picker("Scope", selection: Binding(get: { editor.scopeMode }, set: { editor.changeScope($0) })) {
         Text("Choose coverage…").tag("choose")
         Text("Selected hierarchy branches").tag("paths")
@@ -510,6 +521,24 @@ struct ResolvedTransferOperatorView: View {
         }
       } else if editor.scopeMode == "global" {
         Text("This explicitly selects all resources available under the server’s rules, including future matching work. The exact review retains any server-imposed limits.").font(.callout).foregroundStyle(.secondary)
+      }
+      if editor.scopeMode != "choose", !inbox.permissions.arenaIDs.isEmpty {
+        DisclosureGroup("Arena record coverage · \(editor.coveredArenaIDs.count)") {
+          ForEach(editor.coveredArenaIDs.sorted(), id: \.self) { id in
+            Text(inbox.scopes.first { $0.resource == "Arena/" + id }?.title ?? id)
+          }
+          Text("Arena records are readable only when their read permission is checked below. Selecting a Project may include its containing Arena’s record, without granting access to sibling Work. Arena record IDs are explicit; future Arena records require a new grant selection.")
+            .font(.caption).foregroundStyle(.secondary)
+          if editor.coveredArenaIDs.isEmpty { Text("These branches contain no verified Arena anchor. No Arena records will be granted.").font(.caption) }
+        }
+      }
+      DisclosureGroup("Limit object kinds") {
+        ForEach(inbox.permissions.kinds, id: \.self) { kind in
+          Toggle(kind, isOn: Binding(get: { editor.choice.kinds.contains(kind) }, set: { on in
+            if on { editor.choice.kinds.insert(kind) } else { editor.choice.kinds.remove(kind) }
+            editor.editedPermissions()
+          }))
+        }
       }
     }
   }
