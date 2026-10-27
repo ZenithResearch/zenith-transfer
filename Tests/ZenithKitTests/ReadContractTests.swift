@@ -799,6 +799,43 @@ final class ReadContractTests: XCTestCase {
     XCTAssertEqual(backend.accessActions, ["submit", "status"])
   }
 
+  func testCastawayRestoresProofIntoExistingWalletOnlyAfterProviderApproval() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let issuer = Curve25519.Signing.PrivateKey()
+    let source = try await makeMember(directory: directory.appendingPathComponent("source"), issuer: issuer)
+    let original = try await source.state()
+    let recovery = try await source.exportRecovery(password: "disposable recovery password")
+    let data = try await source.exportData(password: "disposable Castaway password")
+    let restored = try WalletRepository(directory: directory.appendingPathComponent("restored"))
+    let identity = try await restored.prepareRestore(file: recovery,
+      filePassword: "disposable recovery password", password: "new disposable local password")
+    _ = try await restored.commit(identity)
+    _ = try await restored.verifyBackup(file: recovery, password: "disposable recovery password")
+    do {
+      _ = try await restored.prepareData(file: data, password: "disposable Castaway password")
+      XCTFail("A Castaway file must not introduce its own issuer trust")
+    } catch { }
+    let beforeApproval = try await restored.state()
+    XCTAssertEqual(beforeApproval.publicKey, original.publicKey)
+    XCTAssertFalse(beforeApproval.membershipActive)
+    let beforeProofs = try await restored.importedMemberships(scope: nil)
+    XCTAssertTrue(beforeProofs.isEmpty)
+    let summary = try await source.dataSummary()
+    let trust = try XCTUnwrap(try object(summary)["trust"])
+    _ = try await restored.approveTrust(json(trust))
+    let review = try await restored.prepareData(file: data, password: "disposable Castaway password")
+    _ = try await restored.commit(review)
+    let imported = try await restored.importedMemberships(scope: nil)
+    XCTAssertEqual(imported.count, 1)
+    let afterImport = try await restored.state()
+    XCTAssertEqual(afterImport.publicKey, original.publicKey)
+    XCTAssertFalse(afterImport.membershipActive, "Restoring data must not activate membership")
+    let active = try await restored.activateMembership(XCTUnwrap(imported.first), scoped: false)
+    XCTAssertTrue(active.membershipActive)
+    XCTAssertEqual(active.publicKey, original.publicKey)
+  }
+
   private func makeMember(directory: URL, issuer: Curve25519.Signing.PrivateKey) async throws
     -> WalletRepository
   {

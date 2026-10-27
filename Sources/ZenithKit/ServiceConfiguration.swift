@@ -2,7 +2,7 @@ import Foundation
 
 /// Public proposed configuration bundled by the distributor. Loading it never
 /// installs trust; the person still reviews and approves it inside Wallet.
-public struct MembershipConfiguration: Decodable, Sendable {
+public struct MembershipConfiguration: Codable, Sendable {
   public let name: String
   public let endpoint: URL
   public let scope: String?
@@ -45,6 +45,13 @@ public struct MembershipConfiguration: Decodable, Sendable {
       endpoint.user == nil, endpoint.password == nil, endpoint.query == nil,
       endpoint.fragment == nil,
       scope == nil ? trust.v3 != nil : trust.v4 != nil
+    else { throw WalletFailure.core("service_setup_required") }
+    let roots = (trust.v3?.roots ?? []) + (trust.v4?.roots ?? [])
+    guard !roots.isEmpty, roots.count <= 32,
+      roots.allSatisfy({ !$0.issuerId.isEmpty && $0.issuerId.count <= 256 &&
+        !$0.keyId.isEmpty && $0.keyId.count <= 256 && $0.signatureSuite == "Ed25519" &&
+        $0.publicKey.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil }),
+      scope == nil || scope?.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil
     else { throw WalletFailure.core("service_setup_required") }
   }
   public var trustData: Data { get throws { try JSONEncoder().encode(trust) } }
@@ -254,11 +261,30 @@ public struct PrivateHTTPResponse: Sendable {
 }
 
 extension MembershipConfiguration {
+  public static let settingsKey = "membership.provider.configuration.v1"
+  public static func proposed(in defaults: UserDefaults = .standard, bundle: Bundle = .main) -> Self? {
+    if let data = defaults.data(forKey: settingsKey), !data.isEmpty {
+      return try? decodeFile(data)
+    }
+    return bundled(in: bundle)
+  }
+  /// A public configuration file proposes a provider; it cannot approve trust,
+  /// activate a proof, or contain credentials. Persist only the decoded shape.
+  public static func decodeFile(_ data: Data) throws -> Self {
+    var strict = AccountRecordJSON(data, maximumBytes: 65_536, maximumDepth: 12)
+    try strict.validate()
+    guard let value = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+      Set(value.keys).isSubset(of: ["name", "endpoint", "scope", "trust"]),
+      ["name", "endpoint", "trust"].allSatisfy({ value[$0] != nil })
+    else { throw WalletFailure.core("service_setup_required") }
+    let configuration = try JSONDecoder().decode(Self.self, from: data)
+    try configuration.validate()
+    return configuration
+  }
   public static func bundled(in bundle: Bundle = .main) -> Self? {
     guard let url = bundle.url(forResource: "Membership", withExtension: "json"),
       let data = try? Data(contentsOf: url), data.count <= 65_536,
-      let value = try? JSONDecoder().decode(Self.self, from: data),
-      (try? value.validate()) != nil
+      let value = try? decodeFile(data)
     else { return nil }
     return value
   }
