@@ -104,9 +104,23 @@ public struct WorkAccessRequestResult: Decodable, Sendable {
     self.schema=schema;self.request_id=request_id;self.status=status;self.authority_issued=authority_issued
     self.grant_active=grant_active;self.read_active=read_active;self.write_active=write_active
   }
+  /// This is presentation state only; the receiver still verifies the current
+  /// assignment. Write-only or merely reviewed requests cannot enroll reads.
+  public var canReviewReadAccess: Bool {
+    !authority_issued && ((status == "active" && read_active != false) ||
+      (status == "partially_active" && read_active == true))
+  }
+
 }
 
 public extension DevgraphReadClient {
+  private func accessRequestResponse(_ request: URLRequest) async throws -> Data {
+    do { return try await transport.request(request, maximum: 16_384) }
+    catch WalletFailure.core("access_denied") {
+      // Request identity/policy rejection is not a missing Work read grant.
+      throw WalletFailure.core("access_request_denied")
+    }
+  }
   func hasAccessRequest(store: WorkAccessRequestStore) async throws -> Bool {
     let identity = try JSONSerialization.jsonObject(with: await repository.graphAccessIdentityV2()) as? [String:String]
     guard let owner=identity?["subject_public_key"],let device=identity?["installation_id"] else { throw WalletFailure.core("invalid_response") }
@@ -119,6 +133,10 @@ public extension DevgraphReadClient {
   }
 
   func prepareAccessRequest(store: WorkAccessRequestStore, resubmitOriginal: Bool = false, preference: WorkAccessPreference? = nil) async throws -> WorkAccessRequestConsent {
+    do { return try await prepareIdentityRequest(store: store, resubmitOriginal: resubmitOriginal, preference: preference) }
+    catch WalletFailure.core("access_denied") { throw WalletFailure.core("access_request_denied") }
+  }
+  private func prepareIdentityRequest(store: WorkAccessRequestStore, resubmitOriginal: Bool, preference: WorkAccessPreference?) async throws -> WorkAccessRequestConsent {
     let ticket = repository.lifecycleTicket()
     let requirement = try await membershipRequirement()
     let identity = try JSONSerialization.jsonObject(with: await repository.graphAccessIdentityV2()) as? [String:String]
@@ -133,7 +151,7 @@ public extension DevgraphReadClient {
     let action:[String:Any] = ["schema":record.preference == nil ? "devgraph.access-request-action.v1":"devgraph.access-request-action.v2","action":submitting ? "submit":"status","request_id":record.requestID,"subject_public_key":owner,"installation_id":device,"intent":intent]
     var request = URLRequest(url:try configuration.apiURL("/devgraph/access-requests/v2/challenges"))
     request.httpMethod="POST";request.httpBody=try JSONSerialization.data(withJSONObject:["request":action]);request.setValue("application/json",forHTTPHeaderField:"Content-Type")
-    let challenge = try await transport.request(request,maximum:16_384)
+    let challenge = try await accessRequestResponse(request)
     guard let value = try JSONSerialization.jsonObject(with:challenge) as? [String:Any],
       let details = value["details"] as? [String:Any], NSDictionary(dictionary:details).isEqual(to:action) else { throw WalletFailure.core("invalid_response") }
     try repository.checkLifecycle(ticket)
@@ -154,7 +172,7 @@ public extension DevgraphReadClient {
     request.httpMethod="POST";request.httpBody=approved;request.setValue("application/json",forHTTPHeaderField:"Content-Type")
     // Never automatically repeat a submit after an uncertain response. The
     // persistent ID makes the next explicit preparation a status check.
-    let data=try await transport.request(request,maximum:16_384)
+    let data=try await accessRequestResponse(request)
     try repository.checkLifecycle(consent.lifecycle)
     let result=try JSONDecoder().decode(WorkAccessRequestResult.self,from:data)
     guard ["devgraph.access-request-result.v1","devgraph.access-request-result.v2","devgraph.access-request-result.v3","devgraph.access-request-result.v4"].contains(result.schema), result.request_id == consent.requestID, !result.authority_issued,

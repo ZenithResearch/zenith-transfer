@@ -63,6 +63,10 @@ private final class ReadBackend {
   var submitCount = 0
   var failSubmittedResponse = false
   var rejectAccessPreparation = false
+  var denyRequestMetadata = false
+  var denyReadPreparation = false
+  var denyAccessPreparation = false
+  var denyAccessSubmission = false
   var accessRequestID: String?
   var wrongResultVersion = false
   var reusable = false
@@ -85,6 +89,7 @@ private final class ReadBackend {
   }
   func respond(_ request: URLRequest) throws -> Data {
     if request.url?.path == "/monitor/wallet-access/v1" {
+      if denyRequestMetadata { statusCode = 401; return try json(["error":"access_denied"]) }
       statusCode = 200
       var value: [String: Any] = [:]
       if reusable {
@@ -115,6 +120,9 @@ private final class ReadBackend {
     switch request.url!.path {
     case "/devgraph/access-requests/v2/challenges":
       statusCode = 200
+      if denyAccessPreparation {
+        statusCode = 401; return try json(["error":"access_request_denied"])
+      }
       if rejectAccessPreparation {
         statusCode = 400
         return try json(["error": "invalid_access_request"])
@@ -134,6 +142,9 @@ private final class ReadBackend {
       ]
       return try json(challenge)
     case "/devgraph/access-requests/v2/actions":
+      if denyAccessSubmission {
+        statusCode = 401; return try json(["error":"access_request_denied"])
+      }
       let approved = try XCTUnwrap(input["challenge"] as? [String: Any])
       XCTAssertEqual(try json(approved), try json(challenge))
       XCTAssertNotNil(input["proof"])
@@ -163,6 +174,9 @@ private final class ReadBackend {
         "status": accessRequestID == identifier ? "pending" : "unknown", "authority_issued": false,
       ])
     case "/devgraph/native-read/v2/challenges":
+      if denyReadPreparation {
+        statusCode = 401; return try json(["error":"access_denied"])
+      }
       challenge = try makeChallenge(identity: input)
       return try json(challenge)
     case "/monitor/wallet-access/v1/grants":
@@ -513,6 +527,71 @@ final class ReadContractTests: XCTestCase {
     _ = try await repository.unlock(password: "disposable graph access password")
     let restored = try await client.manifest()
     XCTAssertEqual(restored.subject_public_key, identity["subject_public_key"] as? String)
+  }
+  func testCredentialRequestNeedsIdentityButNoExistingReadGrant() async throws {
+    let backend = try ReadBackend(.pathV4); backend.denyReadPreparation = true
+    ReadProtocolStub.use(backend); defer { ReadProtocolStub.use(nil) }
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:directory) }
+    let repository = try WalletRepository(directory:directory)
+    _ = try await repository.create(password:"Disposable request-only Wallet password")
+    let backup = try await repository.exportRecovery(password:"Disposable recovery password")
+    _ = try await repository.verifyBackup(file:backup,password:"Disposable recovery password")
+    let session = URLSessionConfiguration.ephemeral; session.protocolClasses = [ReadProtocolStub.self]
+    let client = try DevgraphReadClient(repository:repository,configuration:backend.config,transport:PrivateTransport(configuration:session))
+    do { _ = try await client.prepare(); XCTFail("A Wallet without a read assignment must not enroll reads") }
+    catch { XCTAssertEqual(error as? WalletFailure,.core("access_denied")) }
+    let store = try WorkAccessRequestStore(directory:directory.appendingPathComponent("requests"))
+    let consent = try await client.prepareAccessRequest(store:store)
+    XCTAssertFalse(consent.checkingStatus)
+    let result = try await client.submitAccessRequest(consent)
+    XCTAssertEqual(result.status,"pending"); XCTAssertFalse(result.authority_issued)
+    XCTAssertEqual(backend.submitCount,1); XCTAssertEqual(backend.rootIssueCount,0)
+    XCTAssertFalse(result.canReviewReadAccess)
+    let check = try await client.prepareAccessRequest(store:store)
+    XCTAssertTrue(check.checkingStatus); XCTAssertEqual(check.requestID,result.request_id)
+  }
+  func testRequestRejectionsHaveRequestSpecificErrorsAndKeepTheOriginalID() async throws {
+    let backend = try ReadBackend(.pathV4)
+    ReadProtocolStub.use(backend); defer { ReadProtocolStub.use(nil) }
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:directory) }
+    let repository = try WalletRepository(directory:directory)
+    _ = try await repository.create(password:"Disposable request-only Wallet password")
+    let backup = try await repository.exportRecovery(password:"Disposable recovery password")
+    _ = try await repository.verifyBackup(file:backup,password:"Disposable recovery password")
+    let session = URLSessionConfiguration.ephemeral; session.protocolClasses = [ReadProtocolStub.self]
+    let client = try DevgraphReadClient(repository:repository,configuration:backend.config,transport:PrivateTransport(configuration:session))
+    let store = try WorkAccessRequestStore(directory:directory.appendingPathComponent("requests"))
+    backend.denyRequestMetadata = true
+    do { _ = try await client.prepareAccessRequest(store:store); XCTFail("Rejected public metadata") }
+    catch { XCTAssertEqual(error as? WalletFailure,.core("access_request_denied")) }
+    backend.denyRequestMetadata = false
+    backend.denyAccessPreparation = true
+    do { _ = try await client.prepareAccessRequest(store:store); XCTFail("Rejected identity preparation") }
+    catch { XCTAssertEqual(error as? WalletFailure,.core("access_request_denied")) }
+    let hasRequest = try await client.hasAccessRequest(store:store); XCTAssertFalse(hasRequest)
+    backend.denyAccessPreparation = false
+    let consent = try await client.prepareAccessRequest(store:store)
+    backend.denyAccessSubmission = true
+    do { _ = try await client.submitAccessRequest(consent); XCTFail("Rejected signed request") }
+    catch { XCTAssertEqual(error as? WalletFailure,.core("access_request_denied")) }
+    backend.denyAccessSubmission = false
+    let original = try await client.prepareAccessRequest(store:store)
+    XCTAssertTrue(original.checkingStatus); XCTAssertEqual(original.requestID,consent.requestID)
+  }
+  func testOnlyActiveReadAssignmentsOfferReadCredentialReview() {
+    func result(_ status:String,_ read:Bool?=nil,_ write:Bool?=nil)->WorkAccessRequestResult {
+      WorkAccessRequestResult(schema:"devgraph.access-request-result.v4",request_id:String(repeating:"a",count:32),status:status,authority_issued:false,read_active:read,write_active:write)
+    }
+    for status in ["pending","unknown","denied","revoked","expired","approved","approved_pending_activation","superseded"] {
+      XCTAssertFalse(result(status).canReviewReadAccess,status)
+    }
+    XCTAssertTrue(result("active").canReviewReadAccess,"Legacy active read assignment")
+    XCTAssertTrue(result("active",true,true).canReviewReadAccess)
+    XCTAssertTrue(result("partially_active",true,false).canReviewReadAccess)
+    XCTAssertFalse(result("partially_active",false,true).canReviewReadAccess,"Write-only access cannot enable read enrollment")
+    XCTAssertFalse(result("active",false,true).canReviewReadAccess)
   }
   func testOptionalMembershipIsNotSharedButRemainsInWalletAcrossAllConsentPaths() async throws {
     for requirement in ["optional", "required", nil] as [String?] {

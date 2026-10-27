@@ -30,6 +30,8 @@ public enum WalletFailure: Error, Equatable, LocalizedError {
         return "This is a data file. Choose your recovery file to restore your wallet."
       case "data_file_invalid":
         return "Could not open this data file. Check its password and try again."
+      case "access_request_denied":
+        return "The server rejected this credential request or status proof. Existing graph access is not required to request credentials. Refresh the approval or check the server’s request policy."
       case "access_expired", "access_denied", "invalid_read_authority":
         return "This Wallet does not currently have usable access to this graph. Check your access request or ask the server operator."
       case "membership_required":
