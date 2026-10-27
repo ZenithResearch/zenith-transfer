@@ -52,6 +52,7 @@ extension TransferOperatorBridge {
 
   init(resource: RegisteredResource, repository: any WalletSession,
     transport suppliedTransport: PrivateTransport? = nil, journalDirectory: URL? = nil,
+    requireLocal: Bool = false,
     rpcExchange: ((String, Data) async throws -> PrivateHTTPResponse)? = nil) {
     self.resource = resource; self.repository = repository
     super.init()
@@ -59,7 +60,7 @@ extension TransferOperatorBridge {
       if let rpcExchange { self.rpcExchange = rpcExchange }
       else if let suppliedTransport { transport = suppliedTransport }
       else if let rpc = try? LocalAdminRPC.discover(configuration: resource.configuration) { localRPC = rpc }
-      else if resource.configuration.network == .local || LocalAdminRPC.hasRegisteredService(configuration: resource.configuration) {
+      else if requireLocal || resource.configuration.network == .local || LocalAdminRPC.hasRegisteredService(configuration: resource.configuration) {
         // A local endpoint binding must fail closed if its protected RPC
         // configuration changes; never silently switch it to operator HTTP.
         localRPC = try LocalAdminRPC.discover(configuration: resource.configuration)

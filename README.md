@@ -66,8 +66,10 @@ tokens in this Mac’s non-synchronizing login Keychain. Choose a saved token in
 enrollment key. Saved tokens are application network secrets, excluded from Wallet
 and connection-file exports. See [network setup](docs/network-onboarding.md).
 
-DevGraph credentials remain in **Resources & requests**, with presets/custom
-operations and Arena/path scopes. The server verifies Wallet-signed decisions;
+DevGraph appears once in **Resources & requests**, with a combined Requests /
+Grants / Servers view for its registered access points. Select a request to set
+custom operations, presets, Arena/path scopes and validity; its server and origin
+restrictions are inside the details. See [service inbox](docs/canonical-service-access.md). The server verifies Wallet-signed decisions;
 an account record, discovery entry, local network connection or unlocked Wallet
 alone never creates authority. Onward delegation remains disabled.
 

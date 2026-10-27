@@ -152,13 +152,13 @@ struct NativeOperatorInbox {
     if let read = s["read"], ["devgraph.access-operator-action.v2", "devgraph.access-operator-action.v4", "devgraph.access-operator-action.v6", "devgraph.access-operator-action.v8"].contains(schema) { return try GrantJSON.digest(read) }
     return NSNull()
   }
-  func loadInbox(after: String? = nil) async throws -> [String: Any] {
+  func loadInbox(after: String? = nil, allowAuthorizationUpdate: Bool = true) async throws -> [String: Any] {
     var action: [String: Any] = ["action":"inbox"]
     if let after { action["after_id"] = after }
     try await prepare(action)
     var result = try await confirm()
     let inbox = try NativeOperatorInbox(result, resource: bridge.resource)
-    if let update = inbox.authorizationUpdate {
+    if allowAuthorizationUpdate, let update = inbox.authorizationUpdate {
       // The Wallet presents this exact owner-signed migration before applying
       // anything. A cancellation or uncertain result retains its original action.
       // Never reinterpret an inbox proof as permission to change authorization.

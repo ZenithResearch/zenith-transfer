@@ -233,6 +233,14 @@ private struct TransferResourcesView: View {
   private var current: RegisteredResource? { selected?.savedResource(in: model.resources) }
   private var currentLocal: LocalResource? { selected?.localResource(in: model.localResources) }
   private var currentService: LocalService? { selected?.service(in:model.localServices) }
+  private var serviceGroups: [TransferLogicalService] { TransferLogicalService.groups(model.localServices) }
+  private var currentGroup: TransferLogicalService? {
+    guard case .graph(let id) = selected else { return nil }
+    return serviceGroups.first { $0.id == id }
+  }
+  private var separateSavedConnections: [RegisteredResource] {
+    model.resources.filter { resource in !serviceGroups.contains { $0.contains(resource) } }
+  }
   private var remainingResources: [LocalResource] {
     model.localResources.filter { resource in !model.localServices.contains { $0.resource_id==resource.id && $0.endpoint==resource.endpoint } }
   }
@@ -261,14 +269,14 @@ private struct TransferResourcesView: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 10) {
             Text("Services on this Mac").font(.headline)
-            ForEach(model.localServices) { service in
-              Button { selected = .service(service.id) } label: {
+            ForEach(serviceGroups) { service in
+              Button { selected = .graph(service.id) } label: {
                 VStack(alignment:.leading,spacing:4) {
-                  Label(service.title,systemImage:service.interface == .walletAPI ? "person.badge.key" : "server.rack").font(.headline)
-                  Text(service.endpoint).font(.caption).foregroundStyle(.secondary)
-                  Text(model.localHealth["service:"+service.id]?.label ?? "Checking this endpoint…").font(.caption).foregroundStyle(.secondary)
+                  Label(service.name,systemImage:"square.stack.3d.up").font(.headline)
+                  Text("DevGraph · \(service.servers.count) access points").font(.caption).foregroundStyle(.secondary)
+                  Text("One inbox · Local management").font(.caption).foregroundStyle(.secondary)
                 }.frame(maxWidth:.infinity,alignment:.leading).padding(12)
-                  .background(selected == .service(service.id) ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04)).cornerRadius(10)
+                  .background(selected == .graph(service.id) ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04)).cornerRadius(10)
               }.buttonStyle(.plain)
             }
             if !remainingResources.isEmpty { Text("Configured resources").font(.headline) }
@@ -290,8 +298,8 @@ private struct TransferResourcesView: View {
             if let notice = model.discoveryNotice { Text(notice).font(.caption).foregroundStyle(.secondary) }
             Divider().padding(.vertical, 8)
             Text("Saved connections").font(.headline)
-            if model.resources.isEmpty { Text("No saved connections").foregroundStyle(.secondary) }
-            ForEach(model.resources) { resource in
+            if separateSavedConnections.isEmpty { Text("No other saved connections").foregroundStyle(.secondary) }
+            ForEach(separateSavedConnections) { resource in
               Button { selected = .saved(resource.id) } label: {
                 VStack(alignment: .leading, spacing: 4) {
                   Label(resource.configuration.name, systemImage: "server.rack").font(.headline)
@@ -305,7 +313,26 @@ private struct TransferResourcesView: View {
         }.frame(width: 260)
         Divider()
         ScrollView {
-          if let current {
+          if let group = currentGroup {
+            VStack(alignment: .leading, spacing: 18) {
+              Text(group.name).font(.title.bold())
+              Text("One DevGraph service").font(.headline)
+              Text("Review every request and active grant in one inbox. Choose each recipient’s permissions and hierarchy scopes there; servers and origin restrictions are inside the service.")
+              Label("Management stays on this Mac through signed secS RPC", systemImage: "desktopcomputer").foregroundStyle(.secondary)
+              if !group.hasConsistentAuthority && !group.walletServers.isEmpty {
+                Text("These servers disagree about the issuer identity. Repair their profiles before managing access.").foregroundStyle(.red)
+              } else if group.walletServers.contains(where: { model.localHealth["service:" + $0.id]?.walletAdministration == true }) {
+                Button("Manage credentials") { connectionScreen = .logical(group) }
+                  .buttonStyle(TransferPrimaryButtonStyle()).disabled(model.repository == nil)
+              } else if let unclaimed = group.walletServers.first(where: { model.localHealth["service:" + $0.id]?.ownerRegistrationRequired == true }) {
+                Button("Set up owner Wallet") { ownerService = unclaimed }.buttonStyle(TransferPrimaryButtonStyle())
+              } else {
+                Text("Local Wallet administration is not available yet. Refresh the registered services or launch this graph’s Wallet service.").foregroundStyle(.secondary)
+              }
+              Divider()
+              TransferServiceServersView(service: group)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+          } else if let current {
             VStack(alignment: .leading, spacing: 16) {
               Text(current.configuration.name).font(.title.bold())
               Label("DevGraph · access management", systemImage: "person.badge.key")
@@ -411,6 +438,8 @@ private struct TransferResourcesView: View {
       .sheet(item: $connectionScreen) { screen in
         Group {
           switch screen {
+          case .logical(let service):
+            if let repository = model.repository { TransferServiceInboxView(service: service, repository: repository, walletModel: model) }
           case .access(let resource):
             if let repository = model.repository { TransferOperatorView(resource: resource, repository: repository, walletModel: model) }
           }

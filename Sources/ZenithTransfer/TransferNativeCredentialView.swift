@@ -16,6 +16,7 @@ import ZenithKit
   @Published var review: [String: Any]?
   @Published var busy = false
   @Published var error: String?
+  @Published var resultNotice: String?
   @Published var status = "Unlock Wallet, then review this resource’s requests."
   @Published var declineReason = ""
   private var presetReference: [String: Any]?
@@ -49,6 +50,12 @@ import ZenithKit
       guard let client else { throw NativeGrantError.invalid }
       try accept(await client.loadInbox(after: after))
     }
+  }
+  func loadServiceInbox(after: String? = nil) async throws {
+    guard !busy, let client else { throw NativeGrantError.busy }
+    busy = true; error = nil
+    defer { state = client.state; busy = false }
+    try accept(await client.loadInbox(after: after, allowAuthorizationUpdate: false))
   }
   func createArena(id: String, title: String, description: String) {
     run { [self] in
@@ -188,7 +195,7 @@ import ZenithKit
   private func accept(_ result: [String: Any]) throws {
     if result["inbox"] != nil {
       inbox = try NativeOperatorInbox(result, resource: bridge.resource); selected = nil; review = nil
-      status = "Inbox loaded. Select a request to configure its credential."
+      status = "Inbox loaded. Select a request to configure its credential."; resultNotice = nil
     } else if result["selection"] != nil {
       // Recovery of a review can return before its inbox was loaded after relaunch.
       // Show its exact snapshot; final approval requires reloading current context.
@@ -205,6 +212,7 @@ import ZenithKit
       case "denied": self.status = "Request declined. No access was granted."
       default: self.status = "Decision recorded. Server activation is still required; no active credential is claimed."
       }
+      resultNotice = self.status
       selected = nil; review = nil; inbox = nil
     }
   }
@@ -262,17 +270,24 @@ struct ResolvedTransferOperatorView: View {
   @ObservedObject private var library: TransferPresetLibrary
   @State private var unlocking = false
   @State private var creatingPreset = false
-  @State private var newArenaID = ""
-  @State private var newArenaTitle = ""
-  @State private var newArenaDescription = ""
   @Environment(\.dismiss) private var dismiss
   private let onRecoveredLegacyAction: () -> Void
+  private var embedded = false
+  private var serviceName: String?
+  private var onBack: (() -> Void)?
   init(resource: RegisteredResource, repository: any WalletSession, walletModel: TransferModel,
        onRecoveredLegacyAction: @escaping () -> Void = {}) {
     self.onRecoveredLegacyAction = onRecoveredLegacyAction
     self.walletModel = walletModel; library = walletModel.presetLibrary
     let bridge = TransferOperatorBridge(resource: resource, repository: repository)
     _bridge = StateObject(wrappedValue: bridge); _editor = StateObject(wrappedValue: NativeCredentialModel(bridge: bridge))
+  }
+  init(bridge: TransferOperatorBridge, editor: NativeCredentialModel, walletModel: TransferModel,
+       serviceName: String, onBack: @escaping () -> Void) {
+    _bridge = StateObject(wrappedValue: bridge); _editor = StateObject(wrappedValue: editor)
+    self.walletModel = walletModel; library = walletModel.presetLibrary
+    self.embedded = true; self.serviceName = serviceName; self.onBack = onBack
+    self.onRecoveredLegacyAction = {}
   }
   var unlocked: Bool { walletModel.walletUnlocked }
   var editing: Bool { !editor.busy && editor.state == .idle }
@@ -281,11 +296,12 @@ struct ResolvedTransferOperatorView: View {
       HStack {
         VStack(alignment: .leading, spacing: 4) {
           Text("Credentials & requests").font(.title2.bold())
-          Text(bridge.resource.configuration.name + " · " + bridge.resource.id).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+          Text(serviceName ?? (bridge.resource.configuration.name + " · " + bridge.resource.id)).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
         }
         Spacer()
         Button(unlocked ? "Wallet" : "Unlock Wallet") { unlocking = true }
-        Button("Close") { bridge.cancel(); dismiss() }
+        if embedded { Button("Back to all requests & grants") { onBack?() }.disabled(editor.busy || editor.state != .idle) }
+        else { Button("Close") { bridge.cancel(); dismiss() } }
       }.padding(20)
       Divider()
       ScrollView {
@@ -296,16 +312,16 @@ struct ResolvedTransferOperatorView: View {
           if let error = editor.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
           if !unlocked { Text("Unlock the Transfer Wallet to authenticate to this resource. Owner setup and credential creation are separate flows.").foregroundStyle(.secondary) }
           HStack {
-            Button("Review inbox in Wallet") { editor.loadInbox() }.buttonStyle(TransferPrimaryButtonStyle()).disabled(!unlocked || !editing)
+            Button(embedded ? "Refresh request context in Wallet" : "Review inbox in Wallet") { editor.loadInbox() }.buttonStyle(TransferPrimaryButtonStyle()).disabled(!unlocked || !editing)
             if editor.busy { ProgressView().controlSize(.small) }
           }
           if editor.state != .idle {
             pendingAction
           } else if let inbox = editor.inbox {
             if let info = inbox.raw["owner_arena_upgrade"] as? [String:Any], info["create_arenas"] as? Bool == true {
-              createArenaForm
+              NativeArenaCreationView(editor: editor, unlocked: unlocked)
             }
-            requestList(inbox)
+            if !embedded { requestList(inbox) }
             if let selected = editor.selected { credentialEditor(selected, inbox: inbox) }
             else { activeGrants(inbox) }
           }
@@ -313,7 +329,7 @@ struct ResolvedTransferOperatorView: View {
       }
     }.frame(minWidth: 980, minHeight: 720)
       .onChange(of: bridge.legacyRecoveryCompleted) { completed in
-        if completed { bridge.cancel(); onRecoveredLegacyAction() }
+        if completed && !embedded { bridge.cancel(); onRecoveredLegacyAction() }
       }
       .onChange(of: walletModel.walletUnlocked) { value in if !value { bridge.resolve(false) } }
       .onChange(of: editor.choice) { _ in if editor.state == .idle { editor.review = nil } }
@@ -337,7 +353,7 @@ struct ResolvedTransferOperatorView: View {
           }
         }.padding(24).frame(width: 760, height: 620)
       }
-      .onDisappear { bridge.cancel() }
+      .onDisappear { if !embedded { bridge.cancel() } }
   }
   private var pendingAction: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -349,18 +365,6 @@ struct ResolvedTransferOperatorView: View {
         if editor.state == .prepared && !editor.isRecovery { Button("Cancel unsigned action") { editor.cancelPrepared() }.disabled(editor.busy) }
       }
     }.padding(18).background(Color.primary.opacity(0.04)).cornerRadius(12)
-  }
-  private var createArenaForm: some View {
-    DisclosureGroup("Create Arena") {
-      VStack(alignment:.leading,spacing:12) {
-        TextField("Arena name",text:$newArenaTitle)
-        TextField("Stable ID, for example product-research",text:$newArenaID)
-        TextField("Description",text:$newArenaDescription)
-        Text("Your owner Wallet signs this exact creation. It creates no member credential and grants no one access.").font(.caption).foregroundStyle(.secondary)
-        Button("Review Arena creation in Wallet") { editor.createArena(id:newArenaID,title:newArenaTitle,description:newArenaDescription) }
-          .buttonStyle(TransferPrimaryButtonStyle()).disabled(!editing || !unlocked || newArenaID.isEmpty || newArenaTitle.isEmpty)
-      }.padding(.vertical,8)
-    }
   }
   private func requestList(_ inbox: NativeOperatorInbox) -> some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -384,6 +388,15 @@ struct ResolvedTransferOperatorView: View {
       Text(editor.review == nil ? "Configure this credential" : "Review the exact credential").font(.title2.bold())
       Text("Recipient Wallet: " + selected.subject).font(.caption.monospaced()).textSelection(.enabled)
       Text("Read installation: " + selected.installation).font(.caption.monospaced()).textSelection(.enabled)
+      DisclosureGroup("Servers & origin restrictions") {
+        Text("Request authority: " + bridge.resource.configuration.authorityOrigin).textSelection(.enabled)
+        Text(bridge.resource.configuration.serviceID == nil
+          ? "This retained request uses the original origin-bound protocol. Its signed receiver restriction is preserved. Management still uses local secS RPC."
+          : "This request uses the canonical service authority. Its verified access points share this authority; the selected network route does not create another service.")
+          .font(.callout).foregroundStyle(.secondary)
+        Text("Origin restrictions cannot be widened by changing a server URL. The exact credential review below shows the enforced receiver and scope.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
       Label("Onward delegation: Not allowed", systemImage: "lock.shield")
       Text("This credential is for the approved Wallet. It cannot issue child credentials or grant access to another Wallet.").font(.caption).foregroundStyle(.secondary)
       if let review = editor.review, let selection = review["selection"] as? [String: Any] {
@@ -536,7 +549,27 @@ struct ResolvedTransferOperatorView: View {
   }
 }
 
-private struct NativeActiveGrantRow: View {
+struct NativeArenaCreationView: View {
+  @ObservedObject var editor: NativeCredentialModel
+  let unlocked: Bool
+  @State private var arenaID = ""
+  @State private var title = ""
+  @State private var description = ""
+  var body: some View {
+    DisclosureGroup("Create Arena") {
+      VStack(alignment: .leading, spacing: 12) {
+        TextField("Arena name", text: $title)
+        TextField("Stable ID, for example product-research", text: $arenaID)
+        TextField("Description", text: $description)
+        Text("Your owner Wallet signs this exact creation. It creates no member credential and grants no one access.").font(.caption).foregroundStyle(.secondary)
+        Button("Review Arena creation in Wallet") { editor.createArena(id: arenaID, title: title, description: description) }
+          .buttonStyle(TransferPrimaryButtonStyle()).disabled(!unlocked || editor.busy || editor.state != .idle || arenaID.isEmpty || title.isEmpty)
+      }.padding(.vertical, 8)
+    }
+  }
+}
+
+struct NativeActiveGrantRow: View {
   let grant: [String: Any]
   let disabled: Bool
   let revoke: (String) -> Void

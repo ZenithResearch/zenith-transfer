@@ -23,4 +23,4 @@ flowchart TD
 Private keys/sessions are not stored in account metadata. Tailscale node state
 remains with its persistent service; quitting Transfer does not stop it. Graph
 authorization is independent of Matrix, Nostr and Tailscale account authentication.
-Local secS RPC and remote HTTPS retain their separately bound service selection.
+Transfer groups DevGraph interfaces under one graph service and manages its combined inbox through protected local secS RPC. HTTPS remains an access point for remote clients. Signed route bindings, receiver restrictions and pending action recovery remain exact; see [Shared service access](canonical-service-access.md).

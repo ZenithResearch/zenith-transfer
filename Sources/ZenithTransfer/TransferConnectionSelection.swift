@@ -9,6 +9,7 @@ enum TransferConnectionSelection: Equatable {
   case local(String)
   case service(String)
   case saved(String)
+  case graph(String)
 
   func localResource(in values: [LocalResource]) -> LocalResource? {
     guard case .local(let id) = self else { return nil }
@@ -38,16 +39,19 @@ enum TransferConnectionSelection: Equatable {
 /// another server's client, issuer pin or pending action after a new selection.
 enum TransferConnectionScreen: Identifiable {
   case access(RegisteredResource)
+  case logical(TransferLogicalService)
 
   var endpoint: String {
     switch self {
     case .access(let resource): return resource.configuration.origin
+    case .logical(let service): return service.id
     }
   }
   var id: String {
     let raw: Data
     let prefix: String
     switch self {
+    case .logical(let service): return service.screenID
     case .access(let resource):
       prefix = "access:"
       let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
