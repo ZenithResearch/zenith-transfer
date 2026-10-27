@@ -62,6 +62,7 @@ public struct WorkAccessConfiguration: Codable, Sendable, Hashable {
 public struct WorkReadGrant: Codable, Sendable, Equatable {
   public let schema: String?
   public let resource_paths: [WorkResourcePath]?
+  public let resource_selection: String?
   public let scope: String
   public let operations: [String]
   public let relationship_types: [String]
@@ -73,13 +74,14 @@ public struct WorkReadGrant: Codable, Sendable, Equatable {
   public var isArena: Bool { scope == "devgraph.arena.read" }
   var operationPrefix: String { isArena ? "devgraph.arena." : "devgraph.work." }
   enum CodingKeys: String, CodingKey {
-    case schema, resource_paths, scope, operations, relationship_types, work_kinds, work_ids, arena_ids, all_arenas, include_archived
+    case schema, resource_paths, resource_selection, scope, operations, relationship_types, work_kinds, work_ids, arena_ids, all_arenas, include_archived
   }
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     scope = try c.decode(String.self, forKey: .scope)
     schema = try c.decodeIfPresent(String.self, forKey: .schema)
     resource_paths = try c.decodeIfPresent([WorkResourcePath].self, forKey: .resource_paths)
+    resource_selection = try c.decodeIfPresent(String.self, forKey: .resource_selection)
     work_ids = try c.decodeIfPresent([String].self, forKey: .work_ids)
     arena_ids = try c.decodeIfPresent([String].self, forKey: .arena_ids)
     all_arenas = try c.decodeIfPresent(Bool.self, forKey: .all_arenas)
@@ -544,7 +546,9 @@ func parseGrants(_ value: Any?, protocol version: WorkReadProtocol, holder: Bool
   guard let values = value as? [[String: Any]], !values.isEmpty, values.count <= 32 else {
     throw WalletFailure.core("invalid_response")
   }
-  for value in values {
+  for original in values {
+    var value = original
+    if holder { value.removeValue(forKey: "resource_selection") }
     if value["scope"] as? String == "devgraph.arena.read" {
       if value["all_arenas"] != nil {
         guard version == .collectionArenaV6,
@@ -672,9 +676,12 @@ extension DevgraphReadClient {
     let endpoint = try JSONDecoder().decode(
       HolderGrantEndpoint.self, from: JSONSerialization.data(withJSONObject: raw))
     guard configuration.serviceID == nil || configuration.serviceID == endpoint.service,
-      endpoint.schema == "secs.holder-grant.v1", !endpoint.service.isEmpty,
+      ["secs.holder-grant.v1", "secs.holder-grant.v2"].contains(endpoint.schema), !endpoint.service.isEmpty,
       endpoint.service.count <= 256, endpoint.endpoint == "/monitor/wallet-access/v1/grants"
     else { throw WalletFailure.core("invalid_holder_service") }
+    if endpoint.schema == "secs.holder-grant.v2" {
+      guard try await repository.state().holderGrantProtocols?.contains(endpoint.schema) == true else { throw WalletFailure.core("wallet_update_required") }
+    }
     return endpoint
   }
   /// Retrieves the provider-signed root. It is not stored or used until review.
@@ -785,8 +792,18 @@ func holderReadConstraints(_ permissions: [[String: Any]]) throws -> [[String: A
       return nil
     }
     guard p["resource"] as? String == "https://work.zenith-research.ca/devgraph",
-      var c = p["constraints"] as? [String: Any], let scope = p["scope"] as? [String: Any]
+      var c = p["constraints"] as? [String: Any]
     else { throw WalletFailure.core("invalid_holder_scope") }
+    let scope: [String: Any]
+    if let legacy = p["scope"] as? [String: Any] { scope = legacy }
+    else if let roles = p["roles"] as? [[String: Any]], roles.count == 1,
+      roles[0]["role"] as? String == "target", let selector = roles[0]["selector"] as? [String: Any],
+      selector["schema"] as? String == "secs.resource-selector.v1" {
+      // A manifest describes the retained conditions. The server intersects the
+      // explicit selector from the signed credential for every actual result.
+      scope = ["mode": "all"]
+      c["resource_selection"] = String(data: try JSONSerialization.data(withJSONObject: roles, options: [.prettyPrinted, .sortedKeys]), encoding: .utf8)
+    } else { throw WalletFailure.core("invalid_holder_scope") }
     let arena = operation.hasPrefix("devgraph.arena.")
     guard arena == (c["scope"] as? String == "devgraph.arena.read") else {
       throw WalletFailure.core("invalid_holder_scope")

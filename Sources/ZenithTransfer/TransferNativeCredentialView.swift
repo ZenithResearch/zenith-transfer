@@ -118,7 +118,7 @@ import ZenithKit
   func editedPermissions() { review = nil; presetID = "custom"; presetReference = nil; recipeNotice = nil }
   func changeScope(_ value: String) {
     scopeMode = value; choice.wholeGraph = value == "global"
-    if value != "global" { futureArenaMode = false }
+    futureArenaMode = value == "global" && canReadFutureArenas
     if value != "paths" { choice.paths = [] }
     choice.exactResources = value == "exact" ? Dictionary(uniqueKeysWithValues: choice.kinds.map { ($0, Set<String>()) }) : nil
     exactIDText = [:]
@@ -608,7 +608,7 @@ struct ResolvedTransferOperatorView: View {
         Text("Choose coverage…").tag("choose")
         Text("Selected hierarchy branches").tag("paths")
         Text("Exact resource IDs").tag("exact")
-        Text("All resources permitted by this server").tag("global")
+        Text("All").tag("global")
       }
       if editor.scopeMode == "paths" {
         Text("Select several Arenas, Initiatives or Projects. Selecting a container includes its current and future descendants at access time. Moved-out work loses access.").font(.callout).foregroundStyle(.secondary)
@@ -628,10 +628,6 @@ struct ResolvedTransferOperatorView: View {
         }
       } else if editor.scopeMode == "global" {
         Text("This explicitly selects all resources available under the server’s rules, including future matching work. The exact review retains any server-imposed limits.").font(.callout).foregroundStyle(.secondary)
-      }
-      if editor.scopeMode == "global", editor.canReadFutureArenas {
-        Toggle("Arena records: all current and future Arenas", isOn: Binding(get: { editor.futureArenaMode }, set: editor.setFutureArenaMode))
-        Text("A live collection selector, evaluated at every access. Enable its read action below to grant Arena record access. Fixed-ID selections remain fixed.").font(.caption).foregroundStyle(.secondary)
       }
       if editor.scopeMode != "choose", !editor.futureArenaMode, !inbox.permissions.arenaIDs.isEmpty {
         DisclosureGroup("Arena record coverage · \(editor.coveredArenaIDs.count)") {

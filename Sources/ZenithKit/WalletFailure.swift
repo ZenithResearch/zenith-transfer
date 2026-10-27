@@ -22,6 +22,8 @@ public enum WalletFailure: Error, Equatable, LocalizedError {
         return
           "This installation already has a wallet. Restore another wallet in a separate installation."
       case "backup_identity_mismatch": return "This recovery file belongs to a different wallet."
+      case "wallet_update_required": return "Update this app to use the service’s resource selections. Existing Wallets and grants are preserved."
+      case "grant_version_mismatch": return "These permissions use a different grant format. Review the saved grant before continuing."
       case "wallet_locked": return "Unlock your wallet to continue."
       case "trust_setup_required", "untrusted_issuer":
         return

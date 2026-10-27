@@ -76,6 +76,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 ### Added
 
+- Read, review, save and restore scoped v2 holder grants through the same shared signer and encrypted Wallet store — preserve v1 grants while keeping exact selectors and canonical-service identity visible across access points.
+
+
+### Added
+
 - Add reviewed encrypted provider grants and grant backups under Wallet, using the same public Core0.4 as iOS — same-holder equal or narrower credentials no longer require provider reissuance. Onward delegation remains disabled; installed acceptance is pending.
 
 

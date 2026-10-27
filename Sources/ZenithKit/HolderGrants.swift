@@ -23,14 +23,19 @@ public struct HolderGrantScope: Decodable, Sendable {
 public struct HolderGrantPermission: Decodable, Sendable {
   public let operation: String
   public let resource: String
-  public let scope: HolderGrantScope
+  public let scope: HolderGrantScope?
+  public let roles: String?
   public let conditions: String
-  enum CodingKeys: String, CodingKey { case operation, resource, scope, constraints }
+  enum CodingKeys: String, CodingKey { case operation, resource, scope, roles, constraints }
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     operation = try c.decode(String.self, forKey: .operation)
     resource = try c.decode(String.self, forKey: .resource)
-    scope = try c.decode(HolderGrantScope.self, forKey: .scope)
+    scope = try c.decodeIfPresent(HolderGrantScope.self, forKey: .scope)
+    let roleData = try c.decodeIfPresent([PublicJSON].self, forKey: .roles)
+    guard (scope != nil) != (roleData != nil), roleData?.isEmpty != true else { throw WalletFailure.core("invalid_holder_scope") }
+    let roleEncoder = JSONEncoder(); roleEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    roles = try roleData.map { String(data: try roleEncoder.encode($0), encoding: .utf8) ?? "" }
     let v = try c.decode(PublicJSON.self, forKey: .constraints)
     let e = JSONEncoder()
     e.outputFormatting = [.prettyPrinted, .sortedKeys]

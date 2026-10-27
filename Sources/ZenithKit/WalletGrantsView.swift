@@ -29,17 +29,18 @@ public struct HolderGrantSummaryView: View {
       ForEach(Array(summary.permissions.enumerated()), id: \.offset) { _, p in
         VStack(alignment: .leading, spacing: 5) {
           Text(p.title).font(.subheadline.bold())
-          if p.scope.mode == "all" { Text("All resources permitted by the conditions below") }
-          ForEach(Array((p.scope.roots ?? []).enumerated()), id: \.offset) { _, root in
+          if p.scope?.mode == "all" { Text("All resources permitted by the conditions below") }
+          ForEach(Array((p.scope?.roots ?? []).enumerated()), id: \.offset) { _, root in
             Text(root.map { $0.kind + "/" + $0.id }.joined(separator: " → "))
           }
+          if let roles = p.roles { Text("Resource selections").font(.caption.bold()); Text(roles).font(.caption.monospaced()).textSelection(.enabled) }
           DisclosureGroup("Conditions") {
             Text(p.conditions).font(.caption.monospaced()).textSelection(.enabled)
           }
         }.padding(.vertical, 4)
       }
       Text(
-        "Paths include their current descendants. Resources that move outside the path lose access. The provider checks current grant status at each access."
+        "Hierarchy selections include descendants as specified; exact IDs identify only those objects. Resources that move outside the path lose access. The provider checks current grant status at each access."
       ).font(.footnote).foregroundStyle(.secondary)
     }.frame(maxWidth: .infinity, alignment: .leading)
   }

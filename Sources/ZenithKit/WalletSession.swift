@@ -12,6 +12,7 @@ public struct WalletState: Decodable, Sendable {
   public let operatorAccessProtocol: String?
   public let resourceOwnerProtocol: String?
   public var holderGrantProtocol: String? = nil
+  public var holderGrantProtocols: [String]? = nil
   public var canRequestWorkAccess: Bool {
     unlocked && (backupEligible ?? backupVerified)
       && graphAccessProtocol == "castalia.graph-access.v2"
@@ -23,6 +24,7 @@ public struct WalletState: Decodable, Sendable {
     case operatorAccessProtocol = "operator_access_protocol"
     case resourceOwnerProtocol = "resource_owner_protocol"
     case holderGrantProtocol = "holder_grant_protocol"
+    case holderGrantProtocols = "holder_grant_protocols"
     case configured, unlocked, revision
     case publicKey = "public_key"
     case backupVerified = "backup_verified"
