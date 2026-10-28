@@ -16,6 +16,8 @@ private actor FixtureSessionProvider: SessionReviewProvider {
   var preparations = 0
   var submissions = 0
   var challenges = 0
+  var closedClients: Set<String> = []
+  var shutdowns = 0
   var holdPreparation = false
   private var preparationGate: CheckedContinuation<Void, Never>?
   private var holdSubmission = false
@@ -26,7 +28,8 @@ private actor FixtureSessionProvider: SessionReviewProvider {
   func suspendSubmission() { holdSubmission = true }
   func isSubmissionSuspended() -> Bool { submissionGate != nil }
   func resumeSubmission() { submissionGate?.resume(); submissionGate = nil }
-  func closeClient(_ clientID: String) async throws {}
+  func closeClient(_ clientID: String) async throws { closedClients.insert(clientID) }
+  func shutdown() async { shutdowns += 1 }
   func services() async throws -> [SessionReviewService] {
     [.init(service: "urn:zenith:service:example-devgraph", name: "Disposable test provider", readAvailable: true, writeAvailable: false)]
   }
@@ -103,6 +106,53 @@ private actor SuspendedSessionOwner: SessionReviewOwner {
 }
 
 final class SessionReviewBridgeTests: XCTestCase {
+  func testPinnedInventoryRejectsOversizedFileAndAggregateWithoutLaunching() throws {
+    let root = try directory("session-inventory-budget")
+    defer { try? FileManager.default.removeItem(at:root) }
+    let script = root.appendingPathComponent("provider.py"), profile = root.appendingPathComponent("profile.json"), large = root.appendingPathComponent("native0")
+    try Data("fixture".utf8).write(to:script); try Data("{}".utf8).write(to:profile)
+    try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:profile.path)
+    XCTAssertTrue(FileManager.default.createFile(atPath:large.path,contents:nil))
+    let file = try FileHandle(forWritingTo:large)
+    try file.truncate(atOffset:64 * 1024 * 1024); try file.close() // Sparse, no 64MiB disk allocation.
+    let digest = OwnerSetupPlan.sha256(try Data(contentsOf:large))
+    let interpreter = URL(fileURLWithPath:"/usr/bin/true")
+    func launch(_ sources:[URL:String]) throws -> SessionProviderLaunch {
+      .init(interpreter:interpreter,script:script,profile:profile,
+        interpreterSHA256:OwnerSetupPlan.sha256(try Data(contentsOf:interpreter)),scriptSHA256:OwnerSetupPlan.sha256(try Data(contentsOf:script)),
+        profileSHA256:OwnerSetupPlan.sha256(try Data(contentsOf:profile)),sources:sources)
+    }
+    try launch([large:digest]).validate()
+    var inventory = [large:digest]
+    for i in 1...4 {
+      let link = root.appendingPathComponent("native\(i)")
+      try FileManager.default.linkItem(at:large,to:link); inventory[link] = digest
+    }
+    XCTAssertThrowsError(try launch(inventory).validate(),"More than256MiB of pinned input is rejected")
+    let oversized = try FileHandle(forWritingTo:large)
+    try oversized.truncate(atOffset:65 * 1024 * 1024); try oversized.close()
+    XCTAssertThrowsError(try launch([large:digest]).validate(),"File size is checked before reading/hash work")
+  }
+  @MainActor func testDisablingBridgeClosesKnownClientsWithoutStoppingReenableableProvider() async throws {
+    let root = try directory("session-disable")
+    defer { try? FileManager.default.removeItem(at:root) }
+    let suite = "SessionDisable." + UUID().uuidString, defaults = UserDefaults(suiteName:suite)!
+    defer { defaults.removePersistentDomain(forName:suite) }
+    let provider = FixtureSessionProvider()
+    let controller = TransferSessionReviewController(walletModel:nil,directory:root.appendingPathComponent("journal"),defaults:defaults,
+      provider:provider,socketDirectory:root.appendingPathComponent("ipc"),presentWindows:false,clock:{sessionTestNow})
+    controller.setEnabled(true); defer { controller.stop() }
+    let client = String(repeating:"ab",count:16)
+    _ = try await controller.exchange(client:client,method:"request_review",params:request())
+    controller.setEnabled(false)
+    try await waitFor { await provider.closedClients.contains(client) }
+    XCTAssertTrue(controller.endedClients.contains(client)); XCTAssertEqual(controller.records.count,1)
+    controller.setEnabled(true); XCTAssertTrue(controller.enabled)
+    do { _ = try await controller.exchange(client:client,method:"list_services",params:Data("{}".utf8)); XCTFail("Old adapter stays ended") } catch {}
+    _ = try await controller.exchange(client:String(repeating:"cd",count:16),method:"list_services",params:Data("{}".utf8))
+    let stopped = await provider.shutdowns
+    XCTAssertEqual(stopped,0,"Disabling releases clients without permanently stopping the provider")
+  }
   func testPrivateProviderSerializesConcurrentExchangesWithoutCrossingReplies() async throws {
     let root = try directory("session-process-queue")
     defer { try? FileManager.default.removeItem(at: root) }
@@ -204,8 +254,12 @@ final class SessionReviewBridgeTests: XCTestCase {
       try Data("example".utf8).write(to: file)
       try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
+    // Actual custody helpers are several MiB. A pinned native dependency must
+    // fit the inventory while remaining subject to the same drift checks.
+    let helper = root.appendingPathComponent("custody-helper")
+    try Data(repeating:0x41,count:2 * 1024 * 1024).write(to:helper)
     func filePin(_ file: URL) throws -> [String:Any] { ["path":file.path, "sha256":OwnerSetupPlan.sha256(try Data(contentsOf: file))] }
-    raw["launch"] = try ["interpreter":filePin(URL(fileURLWithPath:"/usr/bin/true")), "script":filePin(script), "profile":filePin(profile), "sources":[filePin(source)]]
+    raw["launch"] = try ["interpreter":filePin(URL(fileURLWithPath:"/usr/bin/true")), "script":filePin(script), "profile":filePin(profile), "sources":[filePin(source),filePin(helper)]]
     let descriptor = root.appendingPathComponent("provider.json"), bytes = try SessionReviewWire.encode(raw)
     try bytes.write(to: descriptor); try FileManager.default.setAttributes([.posixPermissions:0o600], ofItemAtPath:descriptor.path)
     XCTAssertNotNil(try SessionProviderRegistration.loadIfPresent(directory: root))

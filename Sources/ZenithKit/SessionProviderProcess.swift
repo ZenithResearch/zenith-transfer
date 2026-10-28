@@ -21,9 +21,15 @@ public struct SessionProviderLaunch: Sendable {
     try verify(interpreter.resolvingSymlinksInPath(), digest: interpreterSHA256, privateFile: false, maximum: 64 * 1024 * 1024)
     try verify(script, digest: scriptSHA256, privateFile: false, maximum: 1048576)
     try verify(profile, digest: profileSHA256, privateFile: true, maximum: 65536)
-    for (url, digest) in sources { try verify(url, digest: digest, privateFile: false, maximum: 1048576) }
+    // The reviewed inventory also contains native custody binaries, not only
+    // Python text. Bound both individual files and the entire inventory.
+    var sourceBytes = 0
+    for (url, digest) in sources {
+      sourceBytes += try verify(url, digest: digest, privateFile: false, maximum: 64 * 1024 * 1024)
+      guard sourceBytes <= 256 * 1024 * 1024 else { throw SessionReviewBridgeError.invalid }
+    }
   }
-  private func verify(_ url: URL, digest: String, privateFile: Bool, maximum: Int) throws {
+  @discardableResult private func verify(_ url: URL, digest: String, privateFile: Bool, maximum: Int) throws -> Int {
     guard url.isFileURL, digest.range(of: "\\A[0-9a-f]{64}\\z", options: .regularExpression) != nil else { throw SessionReviewBridgeError.invalid }
     let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
     guard fd >= 0 else { throw SessionReviewBridgeError.unavailable }
@@ -34,6 +40,7 @@ public struct SessionProviderLaunch: Sendable {
       !privateFile || info.st_nlink == 1,
       let data = try handle.readToEnd(), data.count <= maximum,
       OwnerSetupPlan.sha256(data) == digest else { throw SessionReviewBridgeError.unauthorized }
+    return data.count
   }
 }
 

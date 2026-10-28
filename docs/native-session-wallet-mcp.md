@@ -76,6 +76,9 @@ Normal stdio EOF asks the provider to close only that client's helper and releas
 its capacity slot. This private cleanup method is not an MCP tool. Cleanup failure
 or abrupt process termination cannot be described as confirmed key destruction
 or server revocation; the finite receiver-enforced expiry still applies.
+Disabling local requests snapshots and ends all known or preparing clients and
+queues the same cleanup independently of the closed socket. The provider
+process itself remains available for a fresh adapter after re-enabling.
 
 The MCP-process identity identifies the local adapter instance, not a verified
 conversation ID or the human owner's identity. Restarting that adapter cannot
@@ -144,3 +147,5 @@ The example has placeholder hashes and cannot launch. A production registration
 must be generated from reviewed actual source/profile bytes and installed only
 after its concrete review. No discovery result, MCP call or model-selected file
 can install it. It does not convert a route into a separate credential authority.
+Pinned imported files may include native dependencies: each is bounded to 64 MiB
+and the complete inventory to 256 MiB, in addition to file-type/ownership/hash guards.

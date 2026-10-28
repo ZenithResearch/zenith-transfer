@@ -46,6 +46,7 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
   private var window: NSWindow?
   private var preparedOwner: String?
   private var preparing: Set<String> = []
+  private var knownClients: Set<String> = []
   private var lifecycle: UInt64 = 0
   init(walletModel: TransferModel?, directory: URL?, defaults: UserDefaults = .standard,
     provider: (any SessionReviewProvider)? = nil,
@@ -88,8 +89,17 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
   }
   func setEnabled(_ value: Bool) {
     if !value {
+      let closing = knownClients
+      endedClients.formUnion(closing)
       lifecycle &+= 1; invalidatePreparedConsent()
-      socket?.stop(); socket = nil; enabled = false; defaults.set(false, forKey: Self.enabledKey); return
+      socket?.stop(); socket = nil; enabled = false; defaults.set(false, forKey: Self.enabledKey)
+      Task {
+        for client in closing {
+          do { try await provider.closeClient(client); knownClients.remove(client) }
+          catch { /* No key-destruction or revocation confirmation is claimed. */ }
+        }
+      }
+      return
     }
     guard !enabled, journal != nil, error == nil else { return }
     do {
@@ -142,6 +152,7 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
       }
       if active.flatMap({ records[$0]?.clientID }) == client { invalidatePreparedConsent() }
       try await provider.closeClient(client)
+      knownClients.remove(client)
       return try SessionReviewWire.encode(["schema":"zenith.session-client-closed.v1", "closed":true, "server_revocation_confirmed":false])
     case "list_services":
       guard raw.isEmpty else { throw SessionReviewBridgeError.invalid }
@@ -167,7 +178,9 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
         }
       }
       let correlation = client + ":" + id
-      guard records.count < 64, preparing.insert(correlation).inserted else { throw SessionReviewBridgeError.unavailable }
+      guard records.count < 64, knownClients.contains(client) || knownClients.count < 64,
+        preparing.insert(correlation).inserted else { throw SessionReviewBridgeError.unavailable }
+      knownClients.insert(client)
       defer { preparing.remove(correlation) }
       let value = try await provider.prepare(clientID: client, request: canonical)
       do { try checkClient(client, epoch: epoch) }
