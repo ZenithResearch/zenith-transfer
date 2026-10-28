@@ -154,6 +154,7 @@ final class NativePermissionRulesTests: XCTestCase {
       "scopes":scopes.map { ["resource_path":["schema":$0.resource_path.schema,"path":$0.resource_path.path],"resource":$0.resource,"title":$0.title,"parent":$0.parent as Any? ?? NSNull()] as [String:Any] }, "activation":["write":true,"mixed":true]]
     let inbox = try NativeOperatorInbox(raw, resource: resource)
     let model = NativeCredentialModel(bridge: bridge); model.inbox = inbox; model.select(recipient)
+    model.beginHierarchySelection()
     XCTAssertTrue(model.hierarchyMode)
     model.setHierarchy(scopes[0], access: .read, enabled: true)
     model.setHierarchy(scopes[1], access: .write, enabled: true)

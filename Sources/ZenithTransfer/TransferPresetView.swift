@@ -7,10 +7,10 @@ import ZenithKit
   @Published var error: String?
   private var store: CredentialPresetStore?
   var available: [CredentialPresetRevision] { CredentialPresetRevision.builtins + customs.filter { !$0.archived } }
-  init() {
+  init(directory: URL? = nil) {
     do {
       let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-      store = try CredentialPresetStore(directory: base.appendingPathComponent("ZenithTransfer/CredentialPresets"))
+      store = try CredentialPresetStore(directory: directory ?? base.appendingPathComponent("ZenithTransfer/CredentialPresets"))
       try reload()
     } catch { self.error = "The preset library could not be opened safely." }
   }
@@ -18,43 +18,6 @@ import ZenithKit
   func save(_ value: CredentialPresetRevision, replacing expected: CredentialPresetRevision?) throws {
     guard let store else { throw CredentialPresetError.storage }
     try store.append(value, replacing: expected); try reload()
-  }
-}
-
-/// Native member-permission controls shared with the preset creator.
-struct TransferPermissionEditor: View {
-  @Binding var reads: Set<String>
-  @Binding var writes: Set<String>
-  @Binding var arenaRead: Bool
-  var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      Text("Work read permissions").font(.headline)
-      ForEach(WorkReadPermission.allCases, id: \.rawValue) { permission in
-        Toggle(isOn: selected(permission.rawValue, set: $reads)) {
-          VStack(alignment: .leading, spacing: 3) {
-            Text(permission.title)
-            Text(permission.explanation).font(.caption).foregroundStyle(.secondary)
-          }
-        }
-      }
-      Toggle("List and read Arena records", isOn: $arenaRead)
-      Text("Select the specific Arenas when issuing this credential. Arena metadata does not grant access to its Work.").font(.caption).foregroundStyle(.secondary)
-      Label(WorkReadPermission.arenaAvailability, systemImage: "info.circle")
-        .font(.caption).foregroundStyle(.secondary)
-      Text("Write permissions").font(.headline)
-      LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 12) {
-        ForEach(OwnerPermissionPreset.allOperations, id: \.self) { operation in
-          Toggle(OwnerPermissionPreset.title(operation), isOn: selected(operation, set: $writes))
-        }
-      }
-      Text("Applies to Initiative, Project, Issue and Task. Access administration and separate receipt/evidence permissions are configured separately.")
-        .font(.caption).foregroundStyle(.secondary)
-    }
-  }
-  private func selected(_ value: String, set: Binding<Set<String>>) -> Binding<Bool> {
-    Binding(get: { set.wrappedValue.contains(value) }, set: { chosen in
-      if chosen { set.wrappedValue.insert(value) } else { set.wrappedValue.remove(value) }
-    })
   }
 }
 
@@ -147,7 +110,7 @@ struct TransferPresetEditor: View {
             HStack {
               Text("Start with")
               ForEach(CredentialPresetRevision.builtins) { preset in
-                Button(preset.name) { reads = Set(preset.readOperations); writes = Set(preset.writeOperations) }
+                Button(preset.name) { reads = Set(preset.readOperations); writes = TransferPresetPermissionAdapter.canonical(preset.writeOperations); arenaRead = preset.arenaRead == true }
               }
             }
             TransferPermissionEditor(reads: $reads, writes: $writes, arenaRead: $arenaRead)
@@ -182,7 +145,7 @@ struct TransferPresetEditor: View {
     }.frame(width: 820, height: 720).onAppear {
       if let source {
         name = source.name + (duplicate ? " copy" : ""); detail = source.description
-        reads = Set(source.readOperations); writes = Set(source.writeOperations); arenaRead = source.arenaRead == true
+        reads = Set(source.readOperations); writes = TransferPresetPermissionAdapter.canonical(source.writeOperations); arenaRead = source.arenaRead == true
         archived = duplicate ? false : source.archived
         if let seat = source.seat { linkSeat = true; seatClass = seat.seatClassIRI; seatType = seat.seatTypeIRI; seatLabel = seat.label }
       }
@@ -195,7 +158,7 @@ struct TransferPresetEditor: View {
         revision: duplicate || source == nil ? 1 : source!.revision + 1,
         name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: detail,
         readOperations: CredentialPresetRevision.allReads.filter { reads.contains($0) },
-        writeOperations: OwnerPermissionPreset.allOperations.filter { writes.contains($0) }, seat: seat, archived: archived, arenaRead: arenaRead)
+        writeOperations: TransferPresetPermissionAdapter.stored(writes), seat: seat, archived: archived, arenaRead: arenaRead)
       error = nil
     } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "Check the preset settings." }
   }

@@ -28,6 +28,8 @@ import ZenithKit
   @Published var hierarchyMode = false
   @Published var hierarchy = NativeHierarchyPermissions()
   @Published var hierarchyError: String?
+  @Published var requestConfigurationError: String?
+  private(set) var requestedConfiguration: NativeRequestedConfiguration?
   @Published var expanded: Set<String> = []
   @Published var review: [String: Any]?
   @Published var busy = false
@@ -54,6 +56,7 @@ import ZenithKit
       do { try await operation() }
       catch {
         if let e = error as? NativeGrantRuleError { self.error = e.errorDescription }
+        else if let e = error as? NativeRequestedConfigurationError { self.error = e.errorDescription }
         else if let e = error as? NativeGrantError { self.error = e.errorDescription }
         else if let e = error as? WalletFailure { self.error = NativeCredentialDiagnostic.message(e) }
         else if let e = error as? LocalAdminRPCError { self.error = e.errorDescription }
@@ -94,11 +97,35 @@ import ZenithKit
     choice.untilRevoked = inbox.permissions.validity.notAfter == nil
     if let end = inbox.permissions.validity.notAfter { choice.expiry = Date(timeIntervalSince1970: Double(end)) }
     ruleDrafts = [RuleDraft(choice: choice)]; ruleIndex = 0
-    hierarchy = NativeHierarchyPermissions(); hierarchyError = nil; hierarchyMode = inbox.permissions.supportsPaths && inbox.catalog != nil
+    hierarchy = NativeHierarchyPermissions(); hierarchyError = nil; hierarchyMode = false
+    requestedConfiguration = nil; requestConfigurationError = nil
+    do {
+      let requested = try NativeRequestedConfiguration(recipient: item, inbox: inbox)
+      requestedConfiguration = requested
+      if requested.hasRequestedFields {
+        hierarchyMode = false
+        if let preset = requested.preset {
+          choice.reads = Set(preset.read_operations); choice.writes = Set(preset.write_operations)
+          presetID = "server:" + preset.id; presetReference = requested.reference
+        }
+        if let paths = requested.paths { choice.paths = paths; scopeMode = "paths" }
+        ruleDrafts = [RuleDraft(choice: choice, scopeMode: scopeMode)]
+      }
+    } catch {
+      hierarchyMode = false
+      requestConfigurationError = (error as? NativeRequestedConfigurationError)?.errorDescription ?? NativeRequestedConfigurationError.unsupported.errorDescription
+    }
     declineReason = ""
     status = "Choose the permissions and resources for this credential. No access has been granted."
   }
+  func beginHierarchySelection() {
+    guard requestedConfiguration?.hasRequestedFields != true, requestConfigurationError == nil,
+      inbox?.permissions.supportsPaths == true, inbox?.catalog != nil,
+      scopeMode == "choose", permissionRules.allSatisfy({ $0.reads.isEmpty && $0.writes.isEmpty && $0.arenaIDs.isEmpty && !$0.allArenas }) else { return }
+    hierarchyMode = true
+  }
   func applyPreset(_ id: String, library: TransferPresetLibrary) {
+    guard requestedConfiguration?.locksPermissions != true else { return }
     guard let inbox else { return }
     presetID = id; presetReference = nil; review = nil
     let reads: [String], writes: [String]
@@ -119,8 +146,12 @@ import ZenithKit
     updateArenaCoverage()
     recipeNotice = (arenaReadEnabled ? "Arena reads follow the selected scope. " : "") + (omitted > 0 ? "\(omitted) recipe permissions are unavailable for this server or path. Only the checked permissions will be reviewed." : "This recipe selects actions only. Choose scope separately.")
   }
-  func editedPermissions() { review = nil; presetID = "custom"; presetReference = nil; recipeNotice = nil }
+  func editedPermissions() {
+    review = nil; recipeNotice = nil
+    if requestedConfiguration?.locksPermissions != true { presetID = "custom"; presetReference = nil }
+  }
   func changeScope(_ value: String) {
+    guard requestedConfiguration?.locksScope != true else { return }
     scopeMode = value; choice.wholeGraph = value == "global"
     futureArenaMode = value == "global" && canReadFutureArenas
     if value != "paths" { choice.paths = [] }
@@ -144,11 +175,15 @@ import ZenithKit
     review = nil; expanded = []; editedPermissions()
   }
   func addRule() {
-    guard ruleDrafts.count < 16 else { return }
+    guard requestConfigurationError == nil, ruleDrafts.count < 16 else { return }
     storeRule(); let current = choice
     var next = NativeGrantChoice(); next.kinds = current.kinds
+    if let requested = requestedConfiguration {
+      if let preset = requested.preset { next.reads = Set(preset.read_operations); next.writes = Set(preset.write_operations) }
+      if let paths = requested.paths { next.paths = paths }
+    }
     next.untilRevoked = current.untilRevoked; next.expiry = current.expiry
-    ruleDrafts.append(RuleDraft(choice: next)); selectRule(ruleDrafts.count - 1)
+    ruleDrafts.append(RuleDraft(choice: next, scopeMode: requestedConfiguration?.locksScope == true ? "paths" : "choose")); selectRule(ruleDrafts.count - 1)
   }
   func removeRule() {
     guard ruleDrafts.count > 1 else { return }
@@ -241,6 +276,7 @@ import ZenithKit
     arenaReadEnabled = enabled; updateArenaCoverage(); editedPermissions()
   }
   func choose(_ row: WorkScopeOption, selected: Bool) {
+    guard requestedConfiguration?.locksScope != true else { return }
     do {
       choice.paths = try WorkScopeSelection.normalized(selected ? choice.paths + [row.resource_path] : choice.paths.filter { $0 != row.resource_path })
       updateArenaCoverage()
@@ -251,12 +287,15 @@ import ZenithKit
   func reviewSelection() {
     run { [self] in
       guard let inbox, let selected, let client else { throw NativeGrantError.invalid }
+      guard requestConfigurationError == nil else { throw NativeRequestedConfigurationError.unsupported }
       let rules = try hierarchyMode ? hierarchyRules() : advancedRules
+      try requestedConfiguration?.validate(rules)
       if rules.contains(where: { $0.allArenas }) && !canReadFutureArenas { throw NativeGrantError.permissions }
       if rules.contains(where: { !$0.writes.isEmpty }) && inbox.activation["write"] as? Bool == false { throw NativeGrantError.permissions }
       if rules.contains(where: { !$0.reads.isEmpty || !$0.arenaIDs.isEmpty || $0.allArenas }) && rules.contains(where: { !$0.writes.isEmpty }) && inbox.activation["mixed"] as? Bool == false { throw NativeGrantError.permissions }
       let selection = try NativeGrantSelection.makeRules(ceiling: inbox.ceiling, ceilingDigest: inbox.digest,
         recipient: selected, rules: rules, scopes: inbox.scopes, preset: ruleDrafts.count == 1 ? presetReference : nil, now: client.now)
+      try requestedConfiguration?.validateCompiled(selection)
       var action = try selectionAction("review", selection: selection)
       action["action"] = "review"
       try await client.prepare(action); state = client.state
@@ -522,7 +561,7 @@ struct ResolvedTransferOperatorView: View {
   private func credentialEditor(_ selected: NativeGrantRecipient, inbox: NativeOperatorInbox) -> some View {
     VStack(alignment: .leading, spacing: 20) {
       Divider()
-      Text(editor.review == nil ? "Configure this credential" : "Review the exact credential").font(.title2.bold())
+      Text(editor.review == nil ? "Configure access" : "Review the exact grant").font(.title2.bold())
       Text("Recipient Wallet: " + selected.subject).font(.caption.monospaced()).textSelection(.enabled)
       Text("Read installation: " + selected.installation).font(.caption.monospaced()).textSelection(.enabled)
       DisclosureGroup("Servers & origin restrictions") {
@@ -536,21 +575,32 @@ struct ResolvedTransferOperatorView: View {
       }
       Label("Onward delegation: Not allowed", systemImage: "lock.shield")
       Text("This credential is for the approved Wallet. It cannot issue child credentials or grant access to another Wallet.").font(.caption).foregroundStyle(.secondary)
-      if let review = editor.review, let selection = review["selection"] as? [String: Any] {
+      if let message = editor.requestConfigurationError {
+        Text(message).foregroundStyle(.red)
+        Text("Decline this request or ask the requester to send a revised request. Its original fields are preserved.").font(.callout)
+      } else if let review = editor.review, let selection = review["selection"] as? [String: Any] {
         if selection["read"] == nil { Text("This changes write access only. Any existing read grant stays unchanged.").font(.callout) }
         if selection["write"] == nil { Text("This changes read access only. Any existing write grant stays unchanged.").font(.callout) }
         NativeGrantReview(selection: selection, scopes: inbox.scopes)
         HStack {
           Button("Edit selection") { editor.review = nil }
           Spacer()
-          Button("Approve this credential in Wallet") { editor.approveSelection() }.buttonStyle(TransferPrimaryButtonStyle()).disabled(!unlocked || !editing)
+          Button("Accept request in Wallet") { editor.approveSelection() }.buttonStyle(TransferPrimaryButtonStyle()).disabled(!unlocked || !editing)
         }
       } else {
+        if editor.requestedConfiguration?.hasRequestedFields == true {
+          Label("Requested fields are fixed. Complete the remaining choices below.", systemImage: "lock").font(.callout)
+        }
         if editor.hierarchyMode {
           NativeHierarchyPermissionView(editor: editor, inbox: inbox, serviceName: bridge.resource.configuration.name)
           Button("Advanced rules and other write actions") { editor.useAdvancedRules() }
             .font(.callout)
         } else {
+        if editor.scopeMode == "choose", editor.requestedConfiguration?.hasRequestedFields != true,
+          editor.permissionRules.allSatisfy({ $0.reads.isEmpty && $0.writes.isEmpty && $0.arenaIDs.isEmpty && !$0.allArenas }),
+          inbox.catalog != nil {
+          Button("Quick Read / Edit selection by hierarchy") { editor.beginHierarchySelection() }
+        }
         Text("Permission rules").font(.headline)
         Text("Each rule pairs its own scope with its actions. For example: read Arena A in one rule, edit Project B in another. No matching rule means no access. A selected parent includes its descendants; unchecked children are not exclusions.").font(.callout).foregroundStyle(.secondary)
         ForEach(Array(editor.ruleDrafts.enumerated()), id: \.element.id) { index, _ in
@@ -564,7 +614,17 @@ struct ResolvedTransferOperatorView: View {
         }
         Text("Editing rule \(editor.ruleIndex + 1)").font(.headline)
         presetPicker(inbox)
-        scopeChoices(inbox)
+        if let paths = editor.requestedConfiguration?.paths {
+          Label("Requested scope · fixed", systemImage: "lock").font(.headline)
+          Text("Allocate these requested branches to rules. The complete selection must retain every requested branch.").font(.caption)
+          ForEach(paths, id: \.self) { path in
+            Toggle(WorkScopeSelection.label(path, scopes: inbox.scopes), isOn: Binding(get: { editor.choice.paths.contains(path) }, set: { enabled in
+              if enabled { editor.choice.paths.append(path) } else { editor.choice.paths.removeAll { $0 == path } }
+              editor.editedPermissions()
+            }))
+          }
+          DisclosureGroup("Choose object kinds · not specified by the request") { resourceKinds(inbox) }
+        } else { scopeChoices(inbox) }
         permissionChoices(inbox)
         }
         validityChoices(inbox)
@@ -587,73 +647,40 @@ struct ResolvedTransferOperatorView: View {
         }
         Section("Local recipes") { ForEach(library.available) { Text($0.name + " · r\($0.revision)").tag("local:" + $0.id) } }
       }
+      .disabled(editor.requestedConfiguration?.locksPermissions == true)
       Button("Create preset") { creatingPreset = true }
     }
   }
   private func permissionChoices(_ inbox: NativeOperatorInbox) -> some View {
     VStack(alignment: .leading, spacing: 12) {
       if let notice = editor.recipeNotice { Text(notice).font(.callout).foregroundStyle(.secondary) }
-      Text("Read permissions").font(.headline)
-      ForEach(inbox.permissions.reads, id: \.self) { op in
-        Toggle(isOn: binding(op, reads: true)) {
-          VStack(alignment: .leading, spacing: 3) {
-            Text(WorkReadPermission(rawValue: op)?.title ?? ["children":"Read Work children", "blockers":"Read Work blockers"][op] ?? op)
-            if let permission = WorkReadPermission(rawValue: op) {
-              Text(permission.explanation).font(.caption).foregroundStyle(.secondary)
-            }
-          }
-        }
-      }
-      if !inbox.permissions.arenaIDs.isEmpty || editor.canReadFutureArenas {
-        Toggle(isOn: Binding(get: { editor.arenaReadEnabled }, set: editor.setArenaRead)) {
-          VStack(alignment: .leading, spacing: 3) {
-            Text("List and read Arena records")
-            Text(editor.futureArenaMode ? "All current and future Arena records. This grants no Work access or administration." : "Applies only to the Arena coverage shown in Scope. Listing and reading details are combined.")
-              .font(.caption).foregroundStyle(.secondary)
-            if !editor.futureArenaMode && editor.coveredArenaIDs.count > 256 {
-              Text("The current protocol accepts at most 256 Arena records. Select narrower hierarchy branches before review.")
-                .font(.caption).foregroundStyle(.secondary)
-            }
-          }
-        }
-        .disabled(editor.coveredArenaIDs.isEmpty && !editor.futureArenaMode && !editor.arenaReadEnabled)
-      } else {
-        Text("No Arena records are available within this administrator’s permissions.").font(.caption).foregroundStyle(.secondary)
-      }
+      TransferPermissionEditor(
+        reads: Binding(get: { editor.choice.reads }, set: {
+          guard editor.requestedConfiguration?.locksPermissions != true else { return }
+          editor.choice.reads = $0; editor.editedPermissions()
+        }),
+        writes: Binding(get: { editor.choice.writes }, set: {
+          guard editor.requestedConfiguration?.locksPermissions != true else { return }
+          editor.choice.writes = $0; editor.editedPermissions()
+        }),
+        arenaRead: Binding(get: { editor.arenaReadEnabled }, set: {
+          guard editor.requestedConfiguration?.locksPermissions != true else { return }
+          editor.setArenaRead($0)
+        }),
+        availableReads: inbox.permissions.reads,
+        availableWrites: Set(inbox.permissions.writes),
+        allowsArenaRead: editor.arenaReadEnabled || editor.futureArenaMode || !editor.coveredArenaIDs.isEmpty,
+        arenaExplanation: editor.futureArenaMode
+          ? "All current and future Arena records. This grants no Work access or administration."
+          : "Applies only to the Arena coverage shown in Scope. Listing and reading details are combined. At most 256 Arena records can be selected.",
+        writesEnabled: inbox.activation["write"] as? Bool != false,
+        hierarchyScope: editor.scopeMode == "paths",
+        locked: editor.requestedConfiguration?.locksPermissions == true)
       if editor.scopeMode == "paths" {
         Text("Hierarchy rules cover canonical Work descendants and exact Arena records. Proposal, Todo and provenance resources need a separate rule with exact IDs or explicit all-permitted coverage. Actions touching several resources require authority for every one.").font(.caption).foregroundStyle(.secondary)
       }
-      Label(WorkReadPermission.arenaAvailability, systemImage: "info.circle")
-        .font(.caption).foregroundStyle(.secondary)
-      let supported = DevGraphPermissionCatalog.writes.filter { inbox.permissions.writes.contains($0.id) }
-      Text("Write permissions").font(.headline)
-      if !supported.isEmpty {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 12) {
-          ForEach(supported) { action in
-            Toggle(isOn: binding(action.id, reads: false)) {
-              VStack(alignment: .leading, spacing: 3) {
-                Text(action.title)
-                Text(action.explanation).font(.caption).foregroundStyle(.secondary)
-                if !action.hierarchy && editor.scopeMode == "paths" {
-                  Text("Use a separate rule with exact IDs or all permitted resources.").font(.caption).foregroundStyle(.secondary)
-                }
-              }
-            }.disabled(inbox.activation["write"] as? Bool == false || !action.hierarchy && editor.scopeMode == "paths" && !editor.choice.writes.contains(action.id))
-          }
-        }
-      } else {
-        Text("No supported write permissions are available in this request’s current policy.")
-          .font(.caption).foregroundStyle(.secondary)
-      }
       if inbox.activation["mixed"] as? Bool == false { Text("This server requires reads and writes to be approved separately.").font(.caption).foregroundStyle(.secondary) }
     }
-  }
-  private func binding(_ op: String, reads: Bool) -> Binding<Bool> {
-    Binding(get: { reads ? editor.choice.reads.contains(op) : editor.choice.writes.contains(op) }, set: { value in
-      if reads { if value { editor.choice.reads.insert(op) } else { editor.choice.reads.remove(op) } }
-      else { if value { editor.choice.writes.insert(op) } else { editor.choice.writes.remove(op) } }
-      editor.editedPermissions()
-    })
   }
   private func scopeChoices(_ inbox: NativeOperatorInbox) -> some View {
     VStack(alignment: .leading, spacing: 12) {
