@@ -1,0 +1,38 @@
+{
+  "schema": "zenith.session-provider-registration.v1",
+  "mode": "disposable",
+  "profile_digest_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "provider": {
+    "issuer": "example-session-issuer",
+    "key_id": "example-read-v1",
+    "public_key": "abababababababababababababababababababababababababababababababab",
+    "service": "urn:zenith:service:example-devgraph"
+  },
+  "receiver_pin": {
+    "issuer": "example-session-issuer",
+    "key_id": "example-read-v1",
+    "public_key": "abababababababababababababababababababababababababababababababab",
+    "receiver": "https://session-fixture.invalid",
+    "audience": "devgraph"
+  },
+  "launch": {
+    "interpreter": {
+      "path": "/opt/zenith/session-provider/venv/bin/python",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "script": {
+      "path": "/opt/zenith/session-provider/scripts/session_agent_service.py",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "profile": {
+      "path": "/opt/zenith/session-provider/private/profile.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "sources": [
+      {
+        "path": "/opt/zenith/session-provider/src/devgraph/session_agent_service.py",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ]
+  }
+}

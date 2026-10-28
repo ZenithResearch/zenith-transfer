@@ -44,6 +44,7 @@ struct TransferSettingsView: View {
           NavigationLink("Application accounts") { TransferIdentityAccountsView(model: model, showWallet: { unlocking = true }) }
           NavigationLink("Membership provider") { TransferMembershipView(model: model) }
           NavigationLink("Unlock & security") { TransferWalletView(model: model, section: .security) }
+          NavigationLink("Session requests") { TransferSessionSettingsView(controller: model.sessionReviews) }
           NavigationLink("How Wallet and application storage differ") { WalletAboutContent() }
           NavigationLink("Accounts and services") { TransferIdentityModelView() }
         }

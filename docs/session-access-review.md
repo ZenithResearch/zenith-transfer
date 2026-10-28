@@ -3,8 +3,9 @@
 This is an unsigned, simulated application interface. It is not a credential,
 signer-consent protocol or provider authorization evaluator. No production route,
 Wallet flow, installed application, pending request or existing grant is changed.
-There is no native popup, custody helper, durable session broker or MCP tool
-registered by this slice.
+This original adapter slice registered no native popup, custody helper, durable
+session broker or MCP tool. The later opt-in native integration and its separate
+qualification limits are described in [native-session-wallet-mcp.md](native-session-wallet-mcp.md).
 
 ## Producer pin
 

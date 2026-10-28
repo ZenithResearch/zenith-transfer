@@ -106,7 +106,7 @@ public struct SessionAccessReview: Sendable {
   }
 }
 
-public enum SessionAccessState: String, Sendable {
+public enum SessionAccessState: String, Codable, Sendable {
   case prepared, awaitingHuman = "awaiting_human", submitting, issued, denied, cancelled, expired, revoked
   case outcomeUnknown = "outcome_unknown"
 }

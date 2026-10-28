@@ -45,6 +45,8 @@ import CastaliaCustody
   private let defaults:UserDefaults
   private let clock:()->(Date,TimeInterval)
   private var generation = 0
+  private var sessionReviewDirectory: URL?
+  lazy var sessionReviews = TransferSessionReviewController(walletModel: self, directory: sessionReviewDirectory, defaults: defaults)
 
   init(directory:URL?=nil,defaults:UserDefaults = .standard,
     clock:@escaping ()->(Date,TimeInterval) = { (Date(),ProcessInfo.processInfo.systemUptime) }) {
@@ -61,6 +63,7 @@ import CastaliaCustody
       loadedRepository = try WalletRepository(directory: base.appendingPathComponent("Wallet"))
       loadedRegistry = try ResourceRegistry(directory: base.appendingPathComponent("Resources"))
       loadedIdentities = try IdentityAccountRegistry(directory: base.appendingPathComponent("Identities"))
+      sessionReviewDirectory = base.appendingPathComponent("SessionReviews", isDirectory: true)
     } catch { self.error = "Transfer storage is unavailable." }
     repository = loadedRegistry == nil ? nil : loadedRepository
     registry = loadedRegistry
@@ -200,13 +203,13 @@ struct TransferConsole: View {
         }
       }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }.walletUserActivity { model.userActivity() }
-      .task { await model.refresh(); await model.discoverLocalResources() }
+      .task { model.sessionReviews.resumeConfiguredBridge(); await model.refresh(); await model.discoverLocalResources() }
       .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
         model.expire()
         Task { await model.discoverLocalResources() }
       }
       .onReceive(clock) { _ in model.expire() }
-      .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in model.lock() }
+      .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in model.sessionReviews.stop(); model.lock() }
       .alert("Needs attention", isPresented: Binding(get: { model.error != nil },
         set: { if !$0 { model.error = nil } })) { Button("OK") { model.error = nil } }
         message: { Text(model.error ?? "") }
