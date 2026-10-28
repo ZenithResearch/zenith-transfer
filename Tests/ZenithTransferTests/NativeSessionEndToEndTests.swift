@@ -102,6 +102,14 @@ final class NativeSessionEndToEndTests: XCTestCase {
     var sources = try sourceInventory(sourceRoot)
     let venvConfiguration = python.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("pyvenv.cfg")
     if FileManager.default.fileExists(atPath: venvConfiguration.path) { sources[venvConfiguration] = OwnerSetupPlan.sha256(try Data(contentsOf: venvConfiguration)) }
+    if let evidence = env["TRANSFER_SESSION_TEST_EVIDENCE"] {
+      let snapshot: [String:Any] = ["schema":"local.native-session-test-inputs.v1",
+        "interpreter_sha256":OwnerSetupPlan.sha256(try Data(contentsOf:python.resolvingSymlinksInPath())),
+        "launcher_sha256":OwnerSetupPlan.sha256(try Data(contentsOf:script)),
+        "profile_sha256":OwnerSetupPlan.sha256(profileData), "binaries":profile["binaries"] ?? NSNull(),
+        "application_sources":Dictionary(uniqueKeysWithValues:sources.map { ($0.key.path,$0.value) })]
+      try JSONSerialization.data(withJSONObject:snapshot,options:[.prettyPrinted,.sortedKeys]).write(to:URL(fileURLWithPath:evidence),options:.atomic)
+    }
     let launch = SessionProviderLaunch(interpreter: python, script: script, profile: profileURL,
       interpreterSHA256: OwnerSetupPlan.sha256(try Data(contentsOf: python.resolvingSymlinksInPath())), scriptSHA256: OwnerSetupPlan.sha256(try Data(contentsOf: script)),
       profileSHA256: OwnerSetupPlan.sha256(profileData), sources: sources)

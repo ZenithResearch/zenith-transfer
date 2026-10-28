@@ -103,6 +103,34 @@ private actor SuspendedSessionOwner: SessionReviewOwner {
 }
 
 final class SessionReviewBridgeTests: XCTestCase {
+  func testPrivateProviderSerializesConcurrentExchangesWithoutCrossingReplies() async throws {
+    let root = try directory("session-process-queue")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let script = root.appendingPathComponent("provider.py"), profile = root.appendingPathComponent("profile.json")
+    try Data("""
+    import json,sys,time
+    for line in sys.stdin:
+        request=json.loads(line)
+        time.sleep(0.1)
+        result={"client":request["client_id"]}
+        print(json.dumps({"schema":"devgraph.session-provider-result.v1","request_id":request["request_id"],"ok":True,"value":result}),flush=True)
+    """.utf8).write(to:script)
+    try Data("{}".utf8).write(to:profile)
+    try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:profile.path)
+    let python = URL(fileURLWithPath:"/usr/bin/python3")
+    let process = SessionProviderProcess(launch:.init(interpreter:python,script:script,profile:profile,
+      interpreterSHA256:OwnerSetupPlan.sha256(try Data(contentsOf:python.resolvingSymlinksInPath())),
+      scriptSHA256:OwnerSetupPlan.sha256(try Data(contentsOf:script)),profileSHA256:OwnerSetupPlan.sha256(try Data(contentsOf:profile)),
+      sources:[script:OwnerSetupPlan.sha256(try Data(contentsOf:script))]))
+    do {
+      async let first = process.exchange(clientID:String(repeating:"ab",count:16),operation:"services",arguments:Data("{}".utf8))
+      async let second = process.exchange(clientID:String(repeating:"cd",count:16),operation:"services",arguments:Data("{}".utf8))
+      let replies = try await [first,second]
+      XCTAssertEqual(try SessionReviewWire.object(replies[0])["client"] as? String,String(repeating:"ab",count:16))
+      XCTAssertEqual(try SessionReviewWire.object(replies[1])["client"] as? String,String(repeating:"cd",count:16))
+      await process.stop()
+    } catch { await process.stop(); throw error }
+  }
   private func waitFor(_ condition: @escaping () async -> Bool) async throws {
     let deadline = Date().addingTimeInterval(3)
     while !(await condition()) {

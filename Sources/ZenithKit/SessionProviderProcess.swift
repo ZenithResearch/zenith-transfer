@@ -46,6 +46,7 @@ public actor SessionProviderProcess {
   private var input: FileHandle?, output: FileHandle?
   private var attemptedStart = false
   private var busy = false
+  private var waiting = 0
   public init(launch: SessionProviderLaunch) { self.launch = launch }
   public func stop() {
     try? input?.close(); input = nil; output = nil
@@ -53,9 +54,21 @@ public actor SessionProviderProcess {
     process = nil; attemptedStart = true
   }
   public func exchange(clientID: String, operation: String, arguments: Data) async throws -> Data {
-    guard !busy, clientID.range(of: "\\A[0-9a-f]{32}\\z", options: .regularExpression) != nil,
+    guard clientID.range(of: "\\A[0-9a-f]{32}\\z", options: .regularExpression) != nil,
       ["services", "prepare", "update_expiry", "owner_challenge", "submit", "reconcile", "execute", "close_client"].contains(operation)
     else { throw SessionReviewBridgeError.unavailable }
+    // UI approval and another adapter's status check may arrive together. Keep
+    // one NDJSON exchange in flight instead of failing a signed dispatch merely
+    // because a harmless read currently owns the pipe. The queue is bounded.
+    guard waiting < 16 else { throw SessionReviewBridgeError.unavailable }
+    waiting += 1; defer { waiting -= 1 }
+    let queuedAt = DispatchTime.now().uptimeNanoseconds
+    while busy {
+      try Task.checkCancellation()
+      guard DispatchTime.now().uptimeNanoseconds - queuedAt < 15_000_000_000 else { throw SessionReviewBridgeError.unavailable }
+      try await Task.sleep(nanoseconds: 20_000_000)
+    }
+    try Task.checkCancellation()
     busy = true; defer { busy = false }
     try launch.validate()
     var argumentReader = OwnerPlanJSON(arguments, maximumBytes: 262144, maximumKeys: 256, maximumArray: 256, maximumDepth: 24, allowNegativeIntegers: true)

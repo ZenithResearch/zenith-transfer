@@ -60,6 +60,8 @@ path overrides and dynamic-library injection variables. Python's venv invocation
 path is preserved. A failed custody/provider process is not silently restarted
 under an old handle: its memory-only session key cannot be recovered. The app
 journal is not a session-key backup or a promise of restart survival.
+Private NDJSON exchanges are serialized through a bounded queue, so an adapter's
+status read cannot take another native approval's pipe or cross its reply.
 These pins bind the reviewed application source. They do not make Python's
 third-party site-packages or the complete operating-system environment immutable;
 that requires a separate packaging and deployment boundary.
