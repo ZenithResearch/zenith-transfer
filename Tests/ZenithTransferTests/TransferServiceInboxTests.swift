@@ -112,6 +112,31 @@ final class TransferServiceInboxTests: XCTestCase {
     endpoints[1].loaded = false
     XCTAssertFalse(model.complete)
   }
+  @MainActor func testRefreshDistinguishesUnsignedOriginalFromPossibleDispatchWithoutReplacingEither() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:root) }
+    let wallet = try WalletRepository(directory:root.appendingPathComponent("wallet"))
+    let resource = try resource("fixture.example"), directory = root.appendingPathComponent("actions")
+    let journal = try OperatorJournal(directory:directory, origin:resource.id)
+    for dispatched in [false, true] {
+      let record: [String:Any] = ["schema":"devgraph.operator-pending.v1", "origin":resource.id,
+        "identity":["subject_public_key":String(repeating:"a",count:64), "installation_id":String(repeating:"b",count:32)],
+        "action":["schema":"devgraph.access-operator-action.v1", "action":"inbox", "action_id":String(repeating:"c",count:32)],
+        "assignment_digest":NSNull(), "dispatched":dispatched]
+      let original = try GrantJSON.data(record)
+      try journal.save(original)
+      let endpoint = ServiceInboxEndpoint(resource:resource, repository:wallet, journalDirectory:directory, exchange:{ _,_ in
+        XCTFail("Refreshing a retained action must not prepare, sign or send another action")
+        throw NativeGrantError.invalid
+      })
+      defer { endpoint.bridge.cancel() }
+      await endpoint.load()
+      XCTAssertEqual(endpoint.error, (dispatched ? NativeGrantError.recovery : .notSent).errorDescription)
+      XCTAssertEqual(endpoint.editor.state, dispatched ? .unknown : .prepared)
+      XCTAssertEqual(try journal.load(), original)
+      XCTAssertNil(endpoint.bridge.consent)
+    }
+  }
   func testCanonicalAliasesCollapseButLegacyStoresAndOriginalJournalsRemainVisible() throws {
     let key = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 1, count: 32))
     let publicKey = key.publicKey.rawRepresentation.map { String(format: "%02x", $0) }.joined()

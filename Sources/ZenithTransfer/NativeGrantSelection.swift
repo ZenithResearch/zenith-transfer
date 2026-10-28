@@ -7,7 +7,7 @@ import ZenithKit
 // Wire contracts stay unchanged. The Swift editor creates the exact same
 // selections as the established operator client; no delegation fields exist.
 enum NativeGrantError: LocalizedError {
-  case invalid, scope, applicability, permissions, changed, recovery, expired, denied, busy
+  case invalid, scope, applicability, permissions, changed, recovery, notSent, expired, denied, busy
   var errorDescription: String? {
     switch self {
     case .invalid: return "This server response or credential selection is unsupported. Nothing new was issued."
@@ -16,6 +16,7 @@ enum NativeGrantError: LocalizedError {
     case .permissions: return "Select permissions available for this request. The current server cannot issue that selection."
     case .changed: return "The request, policy or assignment changed. Reload the inbox and review again."
     case .recovery: return "The original result is uncertain. Check its status before preparing another decision."
+    case .notSent: return "This action was not sent. Its original ID and selection are retained. Resume the exact action in Wallet to try again."
     case .expired: return "This approval expired. Refresh it to review the same decision."
     case .denied: return "The server refused this action. Check your Wallet authority and the selected scope."
     case .busy: return "Finish or cancel the prepared action first."

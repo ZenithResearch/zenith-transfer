@@ -224,6 +224,10 @@ struct NativeOperatorInbox {
     let result: [String: Any]
     do { result = try await post("/devgraph/access-operator/v1/actions", proof) }
     catch {
+      // A native rejection or failed journal write can precede dispatch. Only
+      // the exact retained original with dispatched=false proves that boundary
+      // was not crossed; missing/changed records must remain uncertain.
+      if restorePreparedIfNotDispatched() { throw NativeGrantError.notSent }
       if recoveryAction == nil, let e = error as? NativeOperatorServerError,
         [400,401,409].contains(e.status), Self.closedRejections.contains(e.code) {
         _ = try await bridge.invokeNative("clear"); original = nil; self.challenge = nil; state = .idle
@@ -237,6 +241,16 @@ struct NativeOperatorInbox {
       original = nil; self.challenge = nil; recoveryAction = nil; state = .idle
       return accepted
     } catch { recoveryAction = nil; self.challenge = nil; state = .unknown; throw NativeGrantError.recovery }
+  }
+  private func restorePreparedIfNotDispatched() -> Bool {
+    guard recoveryAction == nil, var expected = original else { return false }
+    expected["dispatched"] = false
+    do {
+      guard let data = try bridge.retainedNativeAction(),
+        GrantJSON.equal(try GrantJSON.object(data), expected) else { return false }
+      original = expected; challenge = nil; state = .prepared
+      return true
+    } catch { return false }
   }
   private static let closedRejections: Set<String> = ["invalid_operator_selection", "operator_access_denied", "operator_request_changed", "operator_assignment_changed", "write_activation_unavailable", "write_activation_upgrade_required", "native_admission_required", "mixed_activation_unavailable", "activation_unavailable", "activation_upgrade_required"]
 
