@@ -283,6 +283,12 @@ import ZenithKit
       review = nil
     } catch { self.error = "Select at most 16 independent branches." }
   }
+  func allocateRequestedPath(_ path: WorkResourcePath, enabled: Bool) {
+    guard requestedConfiguration?.paths?.contains(path) == true else { return }
+    if enabled { if !choice.paths.contains(path) { choice.paths.append(path) } }
+    else { choice.paths.removeAll { $0 == path } }
+    editedPermissions()
+  }
   func inherited(_ row: WorkScopeOption) -> Bool { choice.paths.contains { $0 != row.resource_path && WorkScopeSelection.covers($0, row.resource_path) } }
   func reviewSelection() {
     run { [self] in
@@ -615,12 +621,11 @@ struct ResolvedTransferOperatorView: View {
         Text("Editing rule \(editor.ruleIndex + 1)").font(.headline)
         presetPicker(inbox)
         if let paths = editor.requestedConfiguration?.paths {
-          Label("Requested scope · fixed", systemImage: "lock").font(.headline)
+          Label("Requested scope · allocation for this rule", systemImage: "lock").font(.headline)
           Text("Allocate these requested branches to rules. The complete selection must retain every requested branch.").font(.caption)
           ForEach(paths, id: \.self) { path in
             Toggle(WorkScopeSelection.label(path, scopes: inbox.scopes), isOn: Binding(get: { editor.choice.paths.contains(path) }, set: { enabled in
-              if enabled { editor.choice.paths.append(path) } else { editor.choice.paths.removeAll { $0 == path } }
-              editor.editedPermissions()
+              editor.allocateRequestedPath(path, enabled:enabled)
             }))
           }
           DisclosureGroup("Choose object kinds · not specified by the request") { resourceKinds(inbox) }

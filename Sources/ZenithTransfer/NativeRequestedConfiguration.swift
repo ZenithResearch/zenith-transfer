@@ -3,12 +3,13 @@ import Foundation
 import ZenithKit
 
 enum NativeRequestedConfigurationError: LocalizedError {
-  case changed, unsupported, unrepresentable
+  case changed, unsupported, unrepresentable, incompleteAllocation
   var errorDescription: String? {
     switch self {
     case .changed: return "The requested preset or catalog changed. Ask for a revised request; no requested field was replaced."
     case .unsupported: return "This request cannot be represented safely by this editor. Ask for a revised request; no permissions were substituted."
     case .unrepresentable: return "The exact requested fields are unavailable under the current policy or selection. Ask for a revised request."
+    case .incompleteAllocation: return "Allocate at least one requested branch to each rule. Every requested branch must remain covered across the complete selection."
     }
   }
 }
@@ -83,11 +84,12 @@ struct NativeRequestedConfiguration {
           choice.arenaIDs.isEmpty, !choice.allArenas else { throw NativeRequestedConfigurationError.unrepresentable }
       }
       if let paths {
-        guard !choice.wholeGraph, choice.exactResources == nil, !choice.paths.isEmpty,
+        guard !choice.paths.isEmpty else { throw NativeRequestedConfigurationError.incompleteAllocation }
+        guard !choice.wholeGraph, choice.exactResources == nil,
           Set(choice.paths).isSubset(of:Set(paths)) else { throw NativeRequestedConfigurationError.unrepresentable }
       }
     }
-    if let paths { guard Set(rules.flatMap(\.paths)) == Set(paths) else { throw NativeRequestedConfigurationError.unrepresentable } }
+    if let paths { guard Set(rules.flatMap(\.paths)) == Set(paths) else { throw NativeRequestedConfigurationError.incompleteAllocation } }
   }
 
   func validateCompiled(_ selection: [String: Any]) throws {

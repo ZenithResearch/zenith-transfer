@@ -80,7 +80,9 @@ final class SharedPermissionConfigurationTests: XCTestCase {
     var first=NativeGrantChoice(); first.reads=["get"];first.kinds=["Task"];first.paths=[path]
     var second=NativeGrantChoice(); second.writes=["devgraph.work.patch.v2"];second.kinds=["Task"];second.paths=[other]
     try value.validate([first,second])
-    XCTAssertThrowsError(try value.validate([first]))
+    XCTAssertThrowsError(try value.validate([first])) { error in
+      XCTAssertTrue((error as? LocalizedError)?.errorDescription?.contains("Every requested branch") == true)
+    }
     let compiled=try NativeGrantSelection.makeRules(ceiling:inbox.ceiling,ceilingDigest:inbox.digest,recipient:request,rules:[first,second],scopes:inbox.scopes,now:100)
     try value.validateCompiled(compiled)
     second.paths=[try WorkResourcePath(path:["Arena/research"])]
@@ -158,6 +160,16 @@ final class SharedPermissionConfigurationTests: XCTestCase {
     XCTAssertNil(try bridge.retainedNativeAction()); XCTAssertNil(bridge.consent)
     model.select(try NativeGrantRecipient(raw)); XCTAssertFalse(model.hierarchyMode)
     model.beginHierarchySelection(); XCTAssertTrue(model.hierarchyMode)
+    let other = try WorkResourcePath(path:["Arena/research","Project/lab"])
+    model.select(try recipient(raw,inbox:inbox,preset:false,paths:[path,other]))
+    model.choice.reads=["get"];model.allocateRequestedPath(other,enabled:false)
+    model.addRule();model.choice.writes=["devgraph.work.patch.v2"];model.allocateRequestedPath(path,enabled:false)
+    model.allocateRequestedPath(other,enabled:true);model.allocateRequestedPath(other,enabled:true)
+    XCTAssertEqual(model.choice.paths,[other],"UI allocation must not duplicate an already selected path")
+    XCTAssertEqual(model.requestedConfiguration?.paths,[path,other],"Original requested scope stays fixed")
+    try model.requestedConfiguration?.validate(model.permissionRules)
+    let compiled=try NativeGrantSelection.makeRules(ceiling:inbox.ceiling,ceilingDigest:inbox.digest,recipient:NativeGrantRecipient(raw),rules:model.permissionRules,scopes:inbox.scopes,now:100)
+    try model.requestedConfiguration?.validateCompiled(compiled)
   }
   @MainActor func testRenderSharedPermissionSurfaceWithSyntheticDataWhenRequested() throws {
     guard let output = ProcessInfo.processInfo.environment["TRANSFER_SHARED_EDITOR_QA"] else { throw XCTSkip("Optional synthetic UI render") }
