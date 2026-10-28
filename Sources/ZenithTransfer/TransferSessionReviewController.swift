@@ -4,6 +4,26 @@ import Combine
 import SwiftUI
 import ZenithKit
 
+/// Narrow application port over the existing native consent API, not a new
+/// signing protocol. There is no MCP argument for selecting its implementation.
+protocol SessionReviewOwner: Sendable {
+  func state() async throws -> WalletState
+  func graphAccessIdentityV2() async throws -> Data
+  func prepareOperatorAccess(_ challenge: Data, pin: ReadAuthorityPin, now: UInt64) async throws -> OperatorConsent
+  func approveOperatorAccess(_ consent: OperatorConsent, now: UInt64) async throws -> Data
+}
+private struct NativeSessionReviewOwner: SessionReviewOwner {
+  let session: any WalletSession
+  func state() async throws -> WalletState { try await session.state() }
+  func graphAccessIdentityV2() async throws -> Data { try await session.graphAccessIdentityV2() }
+  func prepareOperatorAccess(_ challenge: Data, pin: ReadAuthorityPin, now: UInt64) async throws -> OperatorConsent {
+    try await session.prepareOperatorAccess(challenge, pin: pin, now: now)
+  }
+  func approveOperatorAccess(_ consent: OperatorConsent, now: UInt64) async throws -> Data {
+    try await session.approveOperatorAccess(consent, now: now)
+  }
+}
+
 @MainActor final class TransferSessionReviewController: ObservableObject {
   static let enabledKey = "Transfer.sessionReview.localRequests.v1"
   @Published private(set) var enabled = false
@@ -16,6 +36,7 @@ import ZenithKit
   @Published var error: String?
   private weak var walletModel: TransferModel?
   private let provider: any SessionReviewProvider
+  private let ownerOverride: (any SessionReviewOwner)?
   private let journal: SessionReviewJournal?
   private let defaults: UserDefaults
   private let socketDirectory: URL
@@ -25,12 +46,14 @@ import ZenithKit
   private var window: NSWindow?
   private var preparedOwner: String?
   private var preparing: Set<String> = []
+  private var lifecycle: UInt64 = 0
   init(walletModel: TransferModel?, directory: URL?, defaults: UserDefaults = .standard,
     provider: (any SessionReviewProvider)? = nil,
+    owner: (any SessionReviewOwner)? = nil,
     socketDirectory: URL = SessionReviewSocket.defaultDirectory,
     presentWindows: Bool = true,
     clock: @escaping () -> UInt64 = { UInt64(Date().timeIntervalSince1970) }) {
-    self.walletModel = walletModel; self.defaults = defaults
+    self.walletModel = walletModel; self.defaults = defaults; ownerOverride = owner
     var registrationFailed = false
     if let provider { self.provider = provider }
     else {
@@ -65,6 +88,7 @@ import ZenithKit
   }
   func setEnabled(_ value: Bool) {
     if !value {
+      lifecycle &+= 1; invalidatePreparedConsent()
       socket?.stop(); socket = nil; enabled = false; defaults.set(false, forKey: Self.enabledKey); return
     }
     guard !enabled, journal != nil, error == nil else { return }
@@ -73,14 +97,28 @@ import ZenithKit
         guard let self else { throw SessionReviewBridgeError.unavailable }
         return try await self.exchange(client: client, method: method, params: params)
       }
-      try listener.start(); socket = listener; enabled = true; defaults.set(true, forKey: Self.enabledKey)
+      try listener.start(); lifecycle &+= 1; socket = listener; enabled = true; defaults.set(true, forKey: Self.enabledKey)
     } catch { self.error = "The local review channel could not start. Another Transfer instance may be using it." }
   }
   func stop() {
+    lifecycle &+= 1
     socket?.stop(); socket = nil; enabled = false; consent = nil; preparedOwner = nil
     Task { await provider.shutdown() }
   }
   func invalidatePreparedConsent() { consent = nil; preparedOwner = nil }
+  private var owner: (any SessionReviewOwner)? {
+    if let ownerOverride { return ownerOverride }
+    if let session = walletModel?.repository { return NativeSessionReviewOwner(session: session) }
+    return nil
+  }
+  private func checkClient(_ client: String, epoch: UInt64) throws {
+    guard enabled, lifecycle == epoch, !endedClients.contains(client) else { throw SessionAccessReviewError.changed }
+  }
+  private func checkReview(_ handle: String, record: SessionReviewRecord, epoch: UInt64, dispatched: Bool = false) throws {
+    try checkClient(record.clientID, epoch: epoch)
+    guard active == handle, records[handle]?.version == record.version,
+      record.dispatched == dispatched, walletModel?.walletUnlocked == true else { throw SessionAccessReviewError.changed }
+  }
   func review(_ handle: String) throws -> SessionAccessReview {
     guard let record = records[handle] else { throw SessionReviewBridgeError.invalid }
     return try record.preparation.checked(now: clock(), retained: true)
@@ -94,17 +132,21 @@ import ZenithKit
   func exchange(client: String, method: String, params: Data) async throws -> Data {
     guard enabled, client.range(of: "\\A[0-9a-f]{32}\\z", options: .regularExpression) != nil else { throw SessionReviewBridgeError.unavailable }
     let raw = try SessionReviewWire.object(params)
+    let epoch = lifecycle
     guard method == "close_client" || !endedClients.contains(client) else { throw SessionReviewBridgeError.unavailable }
     switch method {
     case "close_client":
       guard raw.isEmpty else { throw SessionReviewBridgeError.invalid }
-      if records.values.contains(where: { $0.clientID == client }) { endedClients.insert(client) }
+      if records.values.contains(where: { $0.clientID == client }) || preparing.contains(where: { $0.hasPrefix(client + ":") }) {
+        endedClients.insert(client)
+      }
       if active.flatMap({ records[$0]?.clientID }) == client { invalidatePreparedConsent() }
       try await provider.closeClient(client)
       return try SessionReviewWire.encode(["schema":"zenith.session-client-closed.v1", "closed":true, "server_revocation_confirmed":false])
     case "list_services":
       guard raw.isEmpty else { throw SessionReviewBridgeError.invalid }
       let services = try await provider.services()
+      try checkClient(client, epoch: epoch)
       guard services.count <= 64 else { throw SessionReviewBridgeError.invalid }
       return try SessionReviewWire.encode(["schema": "zenith.session-review-services.v1", "services":
         try services.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) }])
@@ -128,6 +170,8 @@ import ZenithKit
       guard records.count < 64, preparing.insert(correlation).inserted else { throw SessionReviewBridgeError.unavailable }
       defer { preparing.remove(correlation) }
       let value = try await provider.prepare(clientID: client, request: canonical)
+      do { try checkClient(client, epoch: epoch) }
+      catch { endedClients.insert(client); try? await provider.closeClient(client); throw error }
       let review = try value.checked(now: clock())
       guard review.requestID == id, review.service == raw["service"] as? String, records[review.requestHandle] == nil,
         let manifest = try SessionReviewWire.object(review.manifest)["permissions"],
@@ -154,6 +198,7 @@ import ZenithKit
         guard outcome.credentialHandle == handle else { continue }
         let call = try SessionReviewWire.encode(["operation": operation, "resource": resource, "parameters": parameters])
         let result = try await provider.execute(record.preparation, credentialHandle: handle, requestID: id, call: call)
+        try checkClient(client, epoch: epoch)
         let value = try SessionReviewWire.object(result)
         guard Set(value.keys) == ["schema", "request_id", "provider_service", "operation", "result"],
           value["schema"] as? String == "zenith.session-call-result.v1", value["request_id"] as? String == id,
@@ -193,8 +238,10 @@ import ZenithKit
     guard let handle = active, let before = records[handle], !before.dispatched, before.state == .awaitingHuman, !busy else { return }
     guard !endedClients.contains(before.clientID) else { return }
     busy = true; consent = nil; preparedOwner = nil; error = nil; defer { busy = false }
+    let epoch = lifecycle
     do {
       let old = try review(handle), next = try await provider.updateExpiry(before.preparation, expiresAt: expiry)
+      try checkClient(before.clientID, epoch: epoch)
       _ = try old.updatedExpiry(next.review, requestedExpiry: expiry, now: clock())
       guard records[handle]?.version == before.version, active == handle else { throw SessionAccessReviewError.changed }
       try save(before.replacing(next), replacing: before)
@@ -202,16 +249,21 @@ import ZenithKit
   }
   func prepareNativeReview() async {
     guard let handle = active, let before = records[handle], !before.dispatched, before.state == .awaitingHuman,
-      !busy, let walletModel, walletModel.walletUnlocked, let repository = walletModel.repository else { return }
+      !busy, let walletModel, walletModel.walletUnlocked, let repository = owner else { return }
     guard !endedClients.contains(before.clientID) else { return }
     busy = true; consent = nil; preparedOwner = nil; error = nil; defer { busy = false }
+    let epoch = lifecycle
     do {
       let reviewed = try before.preparation.checked(now: clock())
       let state = try await repository.state()
+      try checkReview(handle, record: before, epoch: epoch)
       guard state.unlocked, let owner = state.publicKey else { throw WalletFailure.locked }
       let identity = try await repository.graphAccessIdentityV2()
+      try checkReview(handle, record: before, epoch: epoch)
       let challenge = try await provider.ownerChallenge(before.preparation, ownerIdentity: identity)
+      try checkReview(handle, record: before, epoch: epoch)
       let native = try await repository.prepareOperatorAccess(challenge, pin: before.preparation.authority, now: clock())
+      try checkReview(handle, record: before, epoch: epoch)
       let details = try SessionReviewWire.object(native.details)
       guard let binding = details["session_review"] as? [String: Any], Set(binding.keys) == ["manifest", "review_digest_sha256"],
         binding["review_digest_sha256"] as? String == reviewed.digest, let manifest = binding["manifest"],
@@ -227,19 +279,24 @@ import ZenithKit
   func approveNativeReview(reviewedDigest: String, reviewedExpiry: UInt64) async {
     guard let handle = active, var record = records[handle], let consent, !record.dispatched,
       record.state == .awaitingHuman, !busy, let walletModel, walletModel.walletUnlocked,
-      let repository = walletModel.repository else { return }
+      let repository = owner, let expectedOwner = preparedOwner else { return }
     guard !endedClients.contains(record.clientID) else { return }
     busy = true; error = nil; defer { busy = false; self.consent = nil; preparedOwner = nil }
+    let epoch = lifecycle
     do {
       let reviewed = try record.preparation.checked(now: clock())
       guard reviewed.digest == reviewedDigest, reviewed.expiresAt == reviewedExpiry,
         clock() < UInt64(consent.expiresAt.timeIntervalSince1970) else { throw SessionAccessReviewError.changed }
-      guard try await repository.state().publicKey == preparedOwner else { throw WalletFailure.conflict }
+      let state = try await repository.state()
+      try checkReview(handle, record: record, epoch: epoch)
+      guard state.unlocked, state.publicKey == expectedOwner else { throw WalletFailure.conflict }
       let previous = record
       record.dispatched = true; record.state = .submitting; record.version += 1
       try save(record, replacing: previous) // durable before signing or dispatch
       let proof = try await repository.approveOperatorAccess(consent, now: clock())
+      try checkReview(handle, record: record, epoch: epoch, dispatched: true)
       let result = try await provider.submit(record.preparation, ownerProof: proof)
+      try checkReview(handle, record: record, epoch: epoch, dispatched: true)
       try acceptResult(result, handle: handle)
     } catch {
       if let saved = records[handle], saved.dispatched {
@@ -265,7 +322,10 @@ import ZenithKit
   }
   func reconcile(_ handle: String) async throws {
     guard let record = records[handle], record.dispatched else { throw SessionAccessReviewError.changed }
+    let epoch = lifecycle
+    try checkClient(record.clientID, epoch: epoch)
     let result = try await provider.reconcile(record.preparation)
+    try checkClient(record.clientID, epoch: epoch)
     guard records[handle]?.version == record.version else { throw SessionAccessReviewError.changed }
     try acceptResult(result, handle: handle)
   }

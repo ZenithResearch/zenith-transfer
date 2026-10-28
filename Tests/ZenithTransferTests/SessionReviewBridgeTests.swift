@@ -15,6 +15,17 @@ private func sessionFixture() throws -> [String: Any] {
 private actor FixtureSessionProvider: SessionReviewProvider {
   var preparations = 0
   var submissions = 0
+  var challenges = 0
+  var holdPreparation = false
+  private var preparationGate: CheckedContinuation<Void, Never>?
+  private var holdSubmission = false
+  private var submissionGate: CheckedContinuation<Void, Never>?
+  func suspendPreparation() { holdPreparation = true }
+  func isPreparationSuspended() -> Bool { preparationGate != nil }
+  func resumePreparation() { preparationGate?.resume(); preparationGate = nil; holdPreparation = false }
+  func suspendSubmission() { holdSubmission = true }
+  func isSubmissionSuspended() -> Bool { submissionGate != nil }
+  func resumeSubmission() { submissionGate?.resume(); submissionGate = nil }
   func closeClient(_ clientID: String) async throws {}
   func services() async throws -> [SessionReviewService] {
     [.init(service: "urn:zenith:service:example-devgraph", name: "Disposable test provider", readAvailable: true, writeAvailable: false)]
@@ -28,13 +39,32 @@ private actor FixtureSessionProvider: SessionReviewProvider {
       holder: SessionReviewWire.encode(manifest["holder"]!), authority: JSONDecoder().decode(ReadAuthorityPin.self, from: SessionReviewWire.encode(pin)))
   }
   func prepare(clientID: String, request: Data) async throws -> SessionReviewPreparation {
-    preparations += 1; return try preparation("initial_review")
+    preparations += 1
+    if holdPreparation { await withCheckedContinuation { preparationGate = $0 } }
+    return try preparation("initial_review")
   }
   func updateExpiry(_ preparation: SessionReviewPreparation, expiresAt: UInt64) async throws -> SessionReviewPreparation {
     try self.preparation("expiry_adjusted_review")
   }
-  func ownerChallenge(_ preparation: SessionReviewPreparation, ownerIdentity: Data) async throws -> Data { throw SessionAccessReviewError.unavailable }
-  func submit(_ preparation: SessionReviewPreparation, ownerProof: Data) async throws -> Data { submissions += 1; throw SessionAccessReviewError.unavailable }
+  func ownerChallenge(_ preparation: SessionReviewPreparation, ownerIdentity: Data) async throws -> Data {
+    challenges += 1
+    let review = try preparation.checked(now: sessionTestNow)
+    // Fake consent ONLY for scheduling tests. The separate opt-in E2E uses
+    // the actual issuer challenge and Wallet Core verification/signature.
+    return try SessionReviewWire.encode(["token":"synthetic-consent", "summary":[
+      "issuer":preparation.authority.issuer, "receiver":preparation.authority.receiver,
+      "operation":"access.decide", "expires_at":sessionTestNow + 120, "native_protocol":"synthetic-test-only",
+      "details":["session_review":["manifest":SessionReviewWire.object(review.manifest), "review_digest_sha256":review.digest]]]])
+  }
+  func submit(_ preparation: SessionReviewPreparation, ownerProof: Data) async throws -> Data {
+    submissions += 1
+    guard holdSubmission else { throw SessionAccessReviewError.unavailable }
+    await withCheckedContinuation { submissionGate = $0 }
+    let review = try preparation.checked(now:sessionTestNow)
+    var result = try SessionReviewWire.object(SessionReviewWire.publicOutcome(review,state:.awaitingHuman))
+    result["state"] = "issued"; result["credential_handle"] = "synthetic-issued-handle"; result["expires_at"] = review.expiresAt
+    return try SessionReviewWire.encode(result)
+  }
   func reconcile(_ preparation: SessionReviewPreparation) async throws -> Data {
     let review = try preparation.checked(now: sessionTestNow, retained: true)
     return try SessionReviewWire.publicOutcome(review, state: .outcomeUnknown)
@@ -42,7 +72,99 @@ private actor FixtureSessionProvider: SessionReviewProvider {
   func counts() -> (Int, Int) { (preparations, submissions) }
 }
 
+private actor SuspendedSessionOwner: SessionReviewOwner {
+  var approvals = 0
+  private var pauseState = false, pauseApproval = false, pauseReview = false
+  private var gate: CheckedContinuation<Void, Never>?
+  func suspendNextState() { pauseState = true }
+  func suspendApproval() { pauseApproval = true }
+  func suspendReview() { pauseReview = true }
+  func isSuspended() -> Bool { gate != nil }
+  func resume() { gate?.resume(); gate = nil }
+  func state() async throws -> WalletState {
+    if pauseState { pauseState = false; await withCheckedContinuation { gate = $0 } }
+    return try Self.publicState()
+  }
+  nonisolated static func publicState() throws -> WalletState {
+    try JSONDecoder().decode(WalletState.self, from: SessionReviewWire.encode([
+      "configured":true, "unlocked":true, "revision":1, "public_key":String(repeating:"ab", count:32),
+      "backup_verified":true, "membership_active":false]))
+  }
+  func graphAccessIdentityV2() async throws -> Data { Data("{}".utf8) }
+  func prepareOperatorAccess(_ challenge: Data, pin: ReadAuthorityPin, now: UInt64) async throws -> OperatorConsent {
+    if pauseReview { pauseReview = false; await withCheckedContinuation { gate = $0 } }
+    return try JSONDecoder().decode(OperatorConsent.self, from: challenge)
+  }
+  func approveOperatorAccess(_ consent: OperatorConsent, now: UInt64) async throws -> Data {
+    approvals += 1
+    if pauseApproval { pauseApproval = false; await withCheckedContinuation { gate = $0 } }
+    return Data("{}".utf8) // Never a usable proof.
+  }
+}
+
 final class SessionReviewBridgeTests: XCTestCase {
+  private func waitFor(_ condition: @escaping () async -> Bool) async throws {
+    let deadline = Date().addingTimeInterval(3)
+    while !(await condition()) {
+      guard Date() < deadline else { XCTFail("Scheduling gate not reached"); throw SessionReviewBridgeError.unavailable }
+      try await Task.sleep(nanoseconds: 1_000_000)
+    }
+  }
+  @MainActor func testEOFDuringPreparationCannotSaveOrShowDeadCustodyReview() async throws {
+    let root = try directory("session-prepare-race")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let provider = FixtureSessionProvider(); await provider.suspendPreparation()
+    let controller = TransferSessionReviewController(walletModel:nil, directory:root.appendingPathComponent("journal"),
+      provider:provider, socketDirectory:root.appendingPathComponent("ipc"), presentWindows:false, clock:{sessionTestNow})
+    controller.setEnabled(true); defer { controller.stop() }
+    let client = String(repeating:"ab",count:16), input = try request()
+    let pending = Task { try await controller.exchange(client:client, method:"request_review", params:input) }
+    try await waitFor { await provider.isPreparationSuspended() }
+    _ = try await controller.exchange(client:client, method:"close_client", params:Data("{}".utf8))
+    await provider.resumePreparation()
+    do { _ = try await pending.value; XCTFail("An ended adapter cannot retain a prepared review") } catch {}
+    XCTAssertTrue(controller.endedClients.contains(client)); XCTAssertTrue(controller.records.isEmpty); XCTAssertNil(controller.active)
+  }
+  @MainActor func testEOFWhileOwnerStateOrSigningIsSuspendedCannotDispatch() async throws {
+    for stage in ["prepare-state", "native-review", "approve-state", "signing", "submit"] {
+      let root = try directory("session-owner-race")
+      defer { try? FileManager.default.removeItem(at: root) }
+      let suite = "SessionRace." + UUID().uuidString, defaults = UserDefaults(suiteName:suite)!
+      defer { defaults.removePersistentDomain(forName:suite) }
+      let model = TransferModel(directory:root.appendingPathComponent("app"), defaults:defaults)
+      model.wallet = try SuspendedSessionOwner.publicState()
+      let provider = FixtureSessionProvider(), owner = SuspendedSessionOwner()
+      let controller = TransferSessionReviewController(walletModel:model, directory:root.appendingPathComponent("journal"), defaults:defaults,
+        provider:provider, owner:owner, socketDirectory:root.appendingPathComponent("ipc"), presentWindows:false, clock:{sessionTestNow})
+      controller.setEnabled(true); defer { controller.stop() }
+      let client = String(repeating:"ab",count:16)
+      _ = try await controller.exchange(client:client, method:"request_review", params:request())
+      let handle = try XCTUnwrap(controller.active), review = try controller.review(handle)
+      let work: Task<Void, Never>
+      if stage == "prepare-state" || stage == "native-review" {
+        if stage == "prepare-state" { await owner.suspendNextState() } else { await owner.suspendReview() }
+        work = Task { await controller.prepareNativeReview() }
+      } else {
+        await controller.prepareNativeReview(); XCTAssertNotNil(controller.consent)
+        if stage == "approve-state" { await owner.suspendNextState() }
+        else if stage == "signing" { await owner.suspendApproval() }
+        else { await provider.suspendSubmission() }
+        work = Task { await controller.approveNativeReview(reviewedDigest:review.digest, reviewedExpiry:review.expiresAt) }
+      }
+      if stage == "submit" { try await waitFor { await provider.isSubmissionSuspended() } }
+      else { try await waitFor { await owner.isSuspended() } }
+      _ = try await controller.exchange(client:client, method:"close_client", params:Data("{}".utf8))
+      if stage == "submit" { await provider.resumeSubmission() } else { await owner.resume() }
+      await work.value
+      XCTAssertNil(controller.consent, stage)
+      let counts = await provider.counts(), approvals = await owner.approvals
+      let fenced = stage == "signing" || stage == "submit"
+      XCTAssertEqual(counts.1,stage == "submit" ? 1 : 0,stage)
+      XCTAssertEqual(approvals,fenced ? 1 : 0,stage)
+      XCTAssertEqual(controller.records[handle]?.dispatched,fenced,stage)
+      XCTAssertEqual(controller.records[handle]?.state,fenced ? .outcomeUnknown : .awaitingHuman,stage)
+    }
+  }
   func testRegistrationPinsSourcesAndRejectsUnsafeOrSubstitutedFiles() throws {
     let root = try directory("session-registration")
     defer { try? FileManager.default.removeItem(at: root) }

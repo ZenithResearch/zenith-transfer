@@ -60,6 +60,15 @@ path overrides and dynamic-library injection variables. Python's venv invocation
 path is preserved. A failed custody/provider process is not silently restarted
 under an old handle: its memory-only session key cannot be recovered. The app
 journal is not a session-key backup or a promise of restart survival.
+These pins bind the reviewed application source. They do not make Python's
+third-party site-packages or the complete operating-system environment immutable;
+that requires a separate packaging and deployment boundary.
+
+After every awaited owner/provider step, Transfer rechecks the channel lifecycle,
+client liveness and exact active review version before retaining consent or
+dispatching. EOF during preparation cannot save a dead-custody review. EOF during
+native signing blocks subsequent submission; if dispatch was already fenced or
+in flight, the original record stays outcome-unknown without another approval.
 
 Normal stdio EOF asks the provider to close only that client's helper and release
 its capacity slot. This private cleanup method is not an MCP tool. Cleanup failure
