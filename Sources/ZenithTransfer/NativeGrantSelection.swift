@@ -180,7 +180,7 @@ struct NativeGrantPermissions {
     arenaIDs = Array(Set(try read.filter { $0["scope"] as? String == "devgraph.arena.read" }.flatMap { ($0["all_arenas"] as? Bool == true ? currentArenaIDs : try GrantJSON.strings($0["arena_ids"])) })).sorted()
     reads = Array(Set(try workRead.flatMap { try GrantJSON.strings($0["operations"]) })).sorted()
     writes = Array(Set(write.compactMap { $0["operation"] as? String })).sorted()
-    kinds = Array(Set(try workRead.flatMap { try GrantJSON.strings($0["work_kinds"]) } + write.flatMap { ($0["resources"] as? [[String: Any]] ?? []).compactMap { $0["kind"] as? String } })).sorted()
+    kinds = Array(Set(try workRead.flatMap { try GrantJSON.strings($0["work_kinds"]) } + write.flatMap { ($0["resources"] as? [[String: Any]] ?? []).compactMap { $0["kind"] as? String } } + (read.contains { $0["scope"] as? String == "devgraph.arena.read" } ? ["Arena"] : []))).sorted()
     let allowed = Set(CredentialPresetRevision.allReads + ["children", "blockers"])
     let allowedWrites = Set(DevGraphPermissionCatalog.writes.map(\.id))
     guard Set(reads).isSubset(of: allowed), Set(writes).isSubset(of: allowedWrites) else { throw NativeGrantError.invalid }

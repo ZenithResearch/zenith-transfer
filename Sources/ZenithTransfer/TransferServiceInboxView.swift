@@ -236,7 +236,11 @@ struct TransferServiceInboxView: View {
             Text("Access points: " + (model.endpoint(for: row)?.origins.joined(separator: ", ") ?? "")).textSelection(.enabled)
             Text("The retained grant’s signed scope and receiver restrictions remain enforced.").font(.caption).foregroundStyle(.secondary)
           }
-          NativeActiveGrantRow(grant: row.raw, disabled: model.busy || !walletModel.walletUnlocked || model.endpoint(for: row)?.editor.state != .idle || model.endpoint(for: row)?.loaded != true) { reason in
+          NativeActiveGrantRow(grant: row.raw, disabled: model.busy || !walletModel.walletUnlocked || model.endpoint(for: row)?.editor.state != .idle || model.endpoint(for: row)?.loaded != true, configure: {
+            guard let endpoint = model.endpoint(for:row) else { return }
+            endpoint.editor.configure(row.raw)
+            if endpoint.editor.existingConfiguration != nil { selected = endpoint }
+          }) { reason in
             model.endpoint(for: row)?.editor.revoke(row.raw, reason: reason)
           }
         }

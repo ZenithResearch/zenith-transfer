@@ -30,6 +30,7 @@ import ZenithKit
   @Published var hierarchyError: String?
   @Published var requestConfigurationError: String?
   private(set) var requestedConfiguration: NativeRequestedConfiguration?
+  private(set) var existingConfiguration: NativeExistingGrantConfiguration?
   @Published var expanded: Set<String> = []
   @Published var review: [String: Any]?
   @Published var busy = false
@@ -57,6 +58,7 @@ import ZenithKit
       catch {
         if let e = error as? NativeGrantRuleError { self.error = e.errorDescription }
         else if let e = error as? NativeRequestedConfigurationError { self.error = e.errorDescription }
+        else if let e = error as? NativeExistingGrantError { self.error = e.errorDescription }
         else if let e = error as? NativeGrantError { self.error = e.errorDescription }
         else if let e = error as? WalletFailure { self.error = NativeCredentialDiagnostic.message(e) }
         else if let e = error as? LocalAdminRPCError { self.error = e.errorDescription }
@@ -91,6 +93,7 @@ import ZenithKit
   }
   func select(_ item: NativeGrantRecipient) {
     guard !busy, state == .idle, let inbox else { return }
+    existingConfiguration = nil
     selected = item; review = nil; presetID = "custom"; presetReference = nil; recipeNotice = nil
     choice = NativeGrantChoice(); exactIDText = [:]; futureArenaMode = false; arenaReadEnabled = false; scopeMode = "choose"; expanded = []
     choice.kinds = Set(inbox.permissions.kinds).intersection(["Initiative", "Project", "Issue", "Task", "Todo", "Proposal"])
@@ -117,6 +120,33 @@ import ZenithKit
     }
     declineReason = ""
     status = "Choose the permissions and resources for this credential. No access has been granted."
+  }
+  func configure(_ grant: [String:Any]) {
+    guard !busy, state == .idle, let inbox else { return }
+    selected = nil; review = nil; existingConfiguration = nil
+    do {
+      let configuration = try NativeExistingGrantConfiguration(grant:grant, inbox:inbox, now:Int(Date().timeIntervalSince1970))
+      select(configuration.recipient)
+      existingConfiguration = configuration
+      // An already approved request's preference is history, not an editing lock.
+      requestedConfiguration = nil; requestConfigurationError = nil
+      ruleDrafts = configuration.rules.map { rule in
+        RuleDraft(choice:rule, scopeMode:rule.exactResources != nil ? "exact" : rule.wholeGraph ? "global" : "paths",
+          futureArenaMode:rule.allArenas, arenaReadEnabled:rule.allArenas || !rule.arenaIDs.isEmpty,
+          exactIDText:rule.exactResources?.mapValues { $0.sorted().joined(separator:", ") } ?? [:])
+      }
+      ruleIndex = 0; choice = ruleDrafts[0].choice; scopeMode = ruleDrafts[0].scopeMode
+      futureArenaMode = ruleDrafts[0].futureArenaMode; arenaReadEnabled = ruleDrafts[0].arenaReadEnabled
+      exactIDText = ruleDrafts[0].exactIDText
+      error = nil; status = "Editing a draft of the existing grant. Current access stays unchanged until you approve the changes in Wallet."
+    } catch {
+      self.error = (error as? NativeExistingGrantError)?.errorDescription ?? NativeExistingGrantError.unsupported.errorDescription
+    }
+  }
+  func discardConfiguration() {
+    guard !busy, state == .idle else { return }
+    selected = nil; review = nil; existingConfiguration = nil
+    status = "Draft discarded. The existing grant is unchanged."
   }
   func beginHierarchySelection() {
     guard requestedConfiguration?.hasRequestedFields != true, requestConfigurationError == nil,
@@ -299,8 +329,9 @@ import ZenithKit
       if rules.contains(where: { $0.allArenas }) && !canReadFutureArenas { throw NativeGrantError.permissions }
       if rules.contains(where: { !$0.writes.isEmpty }) && inbox.activation["write"] as? Bool == false { throw NativeGrantError.permissions }
       if rules.contains(where: { !$0.reads.isEmpty || !$0.arenaIDs.isEmpty || $0.allArenas }) && rules.contains(where: { !$0.writes.isEmpty }) && inbox.activation["mixed"] as? Bool == false { throw NativeGrantError.permissions }
-      let selection = try NativeGrantSelection.makeRules(ceiling: inbox.ceiling, ceilingDigest: inbox.digest,
+      var selection = try NativeGrantSelection.makeRules(ceiling: inbox.ceiling, ceilingDigest: inbox.digest,
         recipient: selected, rules: rules, scopes: inbox.scopes, preset: ruleDrafts.count == 1 ? presetReference : nil, now: client.now)
+      if let existingConfiguration { selection = try existingConfiguration.preservingLimits(selection) }
       try requestedConfiguration?.validateCompiled(selection)
       var action = try selectionAction("review", selection: selection)
       action["action"] = "review"
@@ -376,7 +407,7 @@ import ZenithKit
   }
   private func accept(_ result: [String: Any]) throws {
     if result["inbox"] != nil {
-      inbox = try NativeOperatorInbox(result, resource: bridge.resource); selected = nil; review = nil
+      inbox = try NativeOperatorInbox(result, resource: bridge.resource); selected = nil; review = nil; existingConfiguration = nil
       status = "Inbox loaded. Select a request to configure its credential."; resultNotice = nil
     } else if result["selection"] != nil {
       // Recovery of a review can return before its inbox was loaded after relaunch.
@@ -387,7 +418,7 @@ import ZenithKit
       switch status {
       case "active" where result["member_grants_changed"] as? Bool == false:
         self.status = "DevGraph authorization data updated. Existing member grants are unchanged. Reload the inbox to configure credentials."
-      case "active": self.status = "Grant activated. The recipient can obtain and reuse access while it remains valid."
+      case "active": self.status = result["configured_existing_grant"] as? Bool == true ? "Grant updated. The approved changes are now active." : "Grant activated. The recipient can obtain and reuse access while it remains valid."
       case "not_applied": self.status = "The original owner upgrade was closed without applying. Reload the inbox before preparing a new review."
       case "created": self.status = "Arena created. Reload the inbox to share it through an explicit recipient credential."
       case "revoked": self.status = "Grant revoked. Further access under it is denied."
@@ -395,7 +426,7 @@ import ZenithKit
       default: self.status = "Decision recorded. Server activation is still required; no active credential is claimed."
       }
       resultNotice = self.status
-      selected = nil; review = nil; inbox = nil
+      selected = nil; review = nil; inbox = nil; existingConfiguration = nil
     }
   }
 }
@@ -482,7 +513,7 @@ struct ResolvedTransferOperatorView: View {
         }
         Spacer()
         Button(unlocked ? "Wallet" : "Unlock Wallet") { unlocking = true }
-        if embedded { Button("Back to all requests & grants") { onBack?() }.disabled(editor.busy || editor.state != .idle) }
+        if embedded { Button("Back to all requests & grants") { editor.discardConfiguration(); onBack?() }.disabled(editor.busy || editor.state != .idle) }
         else { Button("Close") { bridge.cancel(); dismiss() } }
       }.padding(20)
       Divider()
@@ -568,6 +599,12 @@ struct ResolvedTransferOperatorView: View {
     VStack(alignment: .leading, spacing: 20) {
       Divider()
       Text(editor.review == nil ? "Configure access" : "Review the exact grant").font(.title2.bold())
+      if let existing = editor.existingConfiguration {
+        Label("Existing grant · draft changes", systemImage:"pencil")
+        Text("Current access stays in place until final Wallet approval. This editor changes permissions within the existing read and write components; revocation is separate.").font(.callout)
+        DisclosureGroup("Current permissions · unchanged") { NativeGrantReview(selection:existing.selection, scopes:inbox.scopes) }
+        Button("Discard changes") { editor.discardConfiguration() }.disabled(!editing)
+      }
       Text("Recipient Wallet: " + selected.subject).font(.caption.monospaced()).textSelection(.enabled)
       Text("Read installation: " + selected.installation).font(.caption.monospaced()).textSelection(.enabled)
       DisclosureGroup("Servers & origin restrictions") {
@@ -591,7 +628,7 @@ struct ResolvedTransferOperatorView: View {
         HStack {
           Button("Edit selection") { editor.review = nil }
           Spacer()
-          Button("Accept request in Wallet") { editor.approveSelection() }.buttonStyle(TransferPrimaryButtonStyle()).disabled(!unlocked || !editing)
+          Button(editor.existingConfiguration == nil ? "Accept request in Wallet" : "Approve changes in Wallet") { editor.approveSelection() }.buttonStyle(TransferPrimaryButtonStyle()).disabled(!unlocked || !editing)
         }
       } else {
         if editor.requestedConfiguration?.hasRequestedFields == true {
@@ -637,10 +674,10 @@ struct ResolvedTransferOperatorView: View {
           .disabled(!unlocked || !editing || editor.permissionRules.allSatisfy { $0.reads.isEmpty && $0.writes.isEmpty && $0.arenaIDs.isEmpty && !$0.allArenas })
           .disabled(editor.choice.arenaIDs.count > 256)
       }
-      DisclosureGroup("Decline request") {
+      if editor.existingConfiguration == nil { DisclosureGroup("Decline request") {
         TextField("Reason", text: $editor.declineReason)
         Button("Review decline in Wallet") { editor.decline() }.disabled(!unlocked || !editing || editor.declineReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-      }
+      } }
     }.disabled(!editing)
   }
   private func presetPicker(_ inbox: NativeOperatorInbox) -> some View {
@@ -766,7 +803,7 @@ struct ResolvedTransferOperatorView: View {
     VStack(alignment: .leading, spacing: 12) {
       if !inbox.activeGrants.isEmpty { Text("Active grants").font(.headline) }
       ForEach(Array(inbox.activeGrants.enumerated()), id: \.offset) { _, grant in
-        NativeActiveGrantRow(grant: grant, disabled: !editing || !unlocked) { reason in editor.revoke(grant, reason: reason) }
+        NativeActiveGrantRow(grant: grant, disabled: !editing || !unlocked, configure: { editor.configure(grant) }) { reason in editor.revoke(grant, reason: reason) }
       }
     }
   }
@@ -795,6 +832,7 @@ struct NativeArenaCreationView: View {
 struct NativeActiveGrantRow: View {
   let grant: [String: Any]
   let disabled: Bool
+  var configure: (() -> Void)? = nil
   let revoke: (String) -> Void
   @State private var reason = ""
   var body: some View {
@@ -802,6 +840,10 @@ struct NativeActiveGrantRow: View {
       Text("Wallet " + (grant["subject_public_key"] as? String ?? "Unknown")).font(.caption.monospaced()).textSelection(.enabled)
       Text("Access: " + (grant["access_mode"] as? String ?? "read"))
       if let validity = grant["validity"] as? [String: Any] { Text(validity["mode"] as? String == "until_revoked" ? "Until revoked" : "Expires " + Date(timeIntervalSince1970: Double(GrantJSON.integer(validity["not_after"]) ?? 0)).formatted()) }
+      if let configure {
+        Button("Configure") { configure() }.disabled(disabled)
+        Text("Edit a draft; access changes only after Wallet approval.").font(.caption).foregroundStyle(.secondary)
+      }
       TextField("Reason for revocation", text: $reason)
       Button("Review revocation in Wallet") { revoke(reason) }.disabled(disabled || reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }.padding(16).background(Color.primary.opacity(0.035)).cornerRadius(10)
