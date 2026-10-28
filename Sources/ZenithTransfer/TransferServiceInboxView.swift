@@ -36,7 +36,7 @@ import ZenithKit
       loaded = true
     } catch {
       // Never present an old successful snapshot as a complete current inbox.
-      self.error = (error as? LocalizedError)?.errorDescription ?? "Could not load this part of the inbox. Its original records are preserved."
+      self.error = NativeCredentialDiagnostic.message(error)
       loaded = false
     }
   }

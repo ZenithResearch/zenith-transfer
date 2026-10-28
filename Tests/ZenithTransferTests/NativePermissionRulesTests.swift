@@ -1,5 +1,7 @@
 #if os(macOS)
 import Foundation
+import AppKit
+import SwiftUI
 import XCTest
 @testable import ZenithKit
 @testable import CastaliaCustody
@@ -36,6 +38,113 @@ final class NativePermissionRulesTests: XCTestCase {
     XCTAssertEqual(try NativeGrantSelection.paths(writes[0]), [b])
     XCTAssertEqual(writes[0]["operation"] as? String, "devgraph.work.patch.v2")
     XCTAssertNil(result["preset"], "Several independent rules cannot claim one flat preset")
+  }
+  func testHierarchyColumnsCompileWithoutCrossingReadAndWriteScopes() throws {
+    let (ceiling, recipient) = try context()
+    let parent = try WorkResourcePath(path: ["Arena/a"])
+    let child = try WorkResourcePath(path: ["Arena/a", "Project/p"])
+    let sibling = try WorkResourcePath(path: ["Arena/b"])
+    var selection = NativeHierarchyPermissions()
+    try selection.set(parent, .read, enabled: true)
+    try selection.set(child, .write, enabled: true)
+    XCTAssertTrue(selection.inherited(child, .read))
+    XCTAssertFalse(selection.includes(parent, .write))
+    XCTAssertFalse(selection.includes(sibling, .read))
+    let rules = try selection.rules(permissions: NativeGrantPermissions(ceiling), validity: NativeGrantChoice())
+    let scopes = [parent, child].map { WorkScopeOption(resource_path: $0, resource: $0.path.last!, title: "Fixture", parent: nil) }
+    let result = try compile(rules, ceiling: ceiling, recipient: recipient, scopes: scopes)
+    let reads = (result["read"] as! [String: Any])["read_grants"] as! [[String: Any]]
+    let writes = (result["write"] as! [String: Any])["write_grants"] as! [[String: Any]]
+    XCTAssertEqual(try NativeGrantSelection.paths(reads[0]), [parent])
+    XCTAssertEqual(try NativeGrantSelection.paths(writes[0]), [child])
+    XCTAssertEqual(Set(writes.compactMap { $0["operation"] as? String }), NativeHierarchyPermissions.writeActions)
+  }
+  func testHierarchyParentNormalizationDoesNotRemoveOtherColumn() throws {
+    let parent = try WorkResourcePath(path: ["Arena/a"])
+    let child = try WorkResourcePath(path: ["Arena/a", "Project/p"])
+    var selection = NativeHierarchyPermissions()
+    try selection.set(child, .read, enabled: true)
+    try selection.set(child, .write, enabled: true)
+    try selection.set(parent, .read, enabled: true)
+    XCTAssertEqual(selection.readPaths, [parent]); XCTAssertEqual(selection.writePaths, [child])
+    try selection.set(parent, .read, enabled: false)
+    XCTAssertTrue(selection.readPaths.isEmpty); XCTAssertEqual(selection.writePaths, [child])
+  }
+  func testHierarchyDoesNotAddParentArenaRecordForProjectRead() throws {
+    var (ceiling, _) = try context()
+    ceiling["schema"] = "devgraph.access-draft.v6"
+    var rows = ceiling["read_grants"] as! [[String: Any]]
+    rows.append(["scope": "devgraph.arena.read", "arena_ids": ["a"]]); ceiling["read_grants"] = rows
+    let permissions = try NativeGrantPermissions(ceiling)
+    let parent = try WorkResourcePath(path: ["Arena/a"])
+    let child = try WorkResourcePath(path: ["Arena/a", "Project/p"])
+    var selection = NativeHierarchyPermissions()
+    try selection.set(child, .read, enabled: true)
+    XCTAssertTrue(try selection.rules(permissions: permissions, validity: NativeGrantChoice())[0].arenaIDs.isEmpty)
+    try selection.set(parent, .read, enabled: true)
+    XCTAssertEqual(try selection.rules(permissions: permissions, validity: NativeGrantChoice())[0].arenaIDs, ["a"])
+  }
+  func testHierarchyRejectsUnavailableWriteAndNeverEnablesCreationOrDelegation() throws {
+    var (ceiling, _) = try context(); ceiling["write_grants"] = [[String: Any]]()
+    var selection = NativeHierarchyPermissions()
+    try selection.set(WorkResourcePath(path: ["Arena/a"]), .write, enabled: true)
+    XCTAssertThrowsError(try selection.rules(permissions: NativeGrantPermissions(ceiling), validity: NativeGrantChoice()))
+    XCTAssertEqual(NativeHierarchyPermissions.writeActions, ["devgraph.work.patch.v2"])
+  }
+  func testHierarchyBranchBudgetPreservesPreviousDraftOnFailure() throws {
+    var selection = NativeHierarchyPermissions()
+    for i in 0..<16 { try selection.set(WorkResourcePath(path: ["Arena/a-\(i)"]), .read, enabled: true) }
+    let previous = selection
+    XCTAssertThrowsError(try selection.set(WorkResourcePath(path: ["Arena/overflow"]), .read, enabled: true))
+    XCTAssertEqual(selection, previous)
+  }
+  func testClosedWalletDiagnosticsDistinguishContextAndValidationFailures() {
+    XCTAssertTrue(NativeCredentialDiagnostic.message(WalletFailure.core("service_binding_expired")).contains("connection expired"))
+    XCTAssertTrue(NativeCredentialDiagnostic.message(WalletFailure.core("invalid_access_request")).contains("No decision was signed"))
+    XCTAssertFalse(NativeCredentialDiagnostic.message(WalletFailure.core("private arbitrary payload")).contains("private arbitrary payload"))
+  }
+  @MainActor func testHierarchyAdvancedHandoffPreservesExactScopesAndValidity() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let repository = try WalletRepository(directory: directory.appendingPathComponent("wallet"))
+    let configuration = try WorkAccessConfiguration(name: "Design team", receiver: URL(string: "https://fixture.example")!, issuer: "fixture", keyID: "key", publicKey: String(repeating: "12", count: 32))
+    let resource = try RegisteredResource(configuration: configuration)
+    let bridge = TransferOperatorBridge(resource: resource, repository: repository,
+      journalDirectory: directory.appendingPathComponent("actions"), rpcExchange: { _, _ in XCTFail("Editing must not send a request"); throw NativeGrantError.invalid })
+    defer { bridge.cancel() }
+    var (ceiling, recipient) = try context()
+    ceiling["receiver"] = configuration.authorityOrigin; ceiling["issuer"] = configuration.issuer
+    let parent = try WorkResourcePath(path: ["Arena/design"])
+    let child = try WorkResourcePath(path: ["Arena/design", "Project/dashboard"])
+    let other = try WorkResourcePath(path: ["Arena/research"])
+    let scopes = [WorkScopeOption(resource_path: parent, resource: "Arena/design", title: "Design", parent: nil),
+      WorkScopeOption(resource_path: child, resource: "Project/dashboard", title: "Dashboard", parent: "Arena/design"),
+      WorkScopeOption(resource_path: other, resource: "Arena/research", title: "Research", parent: nil)]
+    var catalog: [String: Any] = ["schema":"devgraph.access-catalog.v1", "issuer":configuration.issuer,
+      "receiver":configuration.authorityOrigin, "revision":1, "presets":[Any](), "published_paths":[Any](), "policy_digest_sha256":String(repeating:"a",count:64)]
+    catalog["catalog_digest_sha256"] = try GrantJSON.digest(catalog)
+    let raw: [String: Any] = ["ceiling":ceiling, "ceiling_digest_sha256":try GrantJSON.digest(ceiling),
+      "inbox":["items":[recipient.raw],"total":1], "catalog":catalog,
+      "scopes":scopes.map { ["resource_path":["schema":$0.resource_path.schema,"path":$0.resource_path.path],"resource":$0.resource,"title":$0.title,"parent":$0.parent as Any? ?? NSNull()] as [String:Any] }, "activation":["write":true,"mixed":true]]
+    let inbox = try NativeOperatorInbox(raw, resource: resource)
+    let model = NativeCredentialModel(bridge: bridge); model.inbox = inbox; model.select(recipient)
+    XCTAssertTrue(model.hierarchyMode)
+    model.setHierarchy(scopes[0], access: .read, enabled: true)
+    model.setHierarchy(scopes[1], access: .write, enabled: true)
+    model.expanded = [scopes[0].id]
+    let before = try compile(model.permissionRules, ceiling: ceiling, recipient: recipient, scopes: scopes)
+    if let output = ProcessInfo.processInfo.environment["NATIVE_HIERARCHY_QA_DIRECTORY"] {
+      let view = NSHostingView(rootView: NativeHierarchyPermissionView(editor: model, inbox: inbox, serviceName: "DevGraph · Design team").padding(24).frame(width:900).background(Color.white).environment(\.colorScheme, .light))
+      view.frame = NSRect(x:0,y:0,width:900,height:520); view.layoutSubtreeIfNeeded()
+      let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+      view.cacheDisplay(in:view.bounds,to:bitmap)
+      try XCTUnwrap(bitmap.representation(using:.png, properties:[:])).write(to:URL(fileURLWithPath:output).appendingPathComponent("hierarchy-light.png"))
+    }
+    model.useAdvancedRules()
+    XCTAssertFalse(model.hierarchyMode)
+    let after = try compile(model.permissionRules, ceiling: ceiling, recipient: recipient, scopes: scopes)
+    XCTAssertTrue(GrantJSON.equal(before, after))
+    XCTAssertNil(try bridge.retainedNativeAction()); XCTAssertNil(bridge.consent)
   }
   func testAllTwentyNamedMutationsCompileWithTheirExplicitResourceKinds() throws {
     let (ceiling, recipient) = try context()

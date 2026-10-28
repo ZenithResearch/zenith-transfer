@@ -25,6 +25,8 @@ import ZenithKit
   @Published var presetID = "custom"
   @Published var recipeNotice: String?
   @Published var scopeMode = "choose"
+  @Published var hierarchyMode = false
+  @Published var hierarchy = NativeHierarchyPermissions()
   @Published var expanded: Set<String> = []
   @Published var review: [String: Any]?
   @Published var busy = false
@@ -52,7 +54,7 @@ import ZenithKit
       catch {
         if let e = error as? NativeGrantRuleError { self.error = e.errorDescription }
         else if let e = error as? NativeGrantError { self.error = e.errorDescription }
-        else if let e = error as? WalletFailure { self.error = e.errorDescription }
+        else if let e = error as? WalletFailure { self.error = NativeCredentialDiagnostic.message(e) }
         else if let e = error as? LocalAdminRPCError { self.error = e.errorDescription }
         else if let e = error as? NativeOperatorServerError { self.error = e.errorDescription }
         else { self.error = "Could not finish this step. Check the Wallet and saved server connection." }
@@ -91,6 +93,7 @@ import ZenithKit
     choice.untilRevoked = inbox.permissions.validity.notAfter == nil
     if let end = inbox.permissions.validity.notAfter { choice.expiry = Date(timeIntervalSince1970: Double(end)) }
     ruleDrafts = [RuleDraft(choice: choice)]; ruleIndex = 0
+    hierarchy = NativeHierarchyPermissions(); hierarchyMode = inbox.permissions.supportsPaths && inbox.catalog != nil
     declineReason = ""
     status = "Choose the permissions and resources for this credential. No access has been granted."
   }
@@ -155,11 +158,45 @@ import ZenithKit
     editedPermissions()
   }
   var permissionRules: [NativeGrantChoice] {
+    if hierarchyMode { return (try? hierarchyRules()) ?? [] }
+    return advancedRules
+  }
+  private var advancedRules: [NativeGrantChoice] {
     ruleDrafts.enumerated().map { index, draft in
       var result = index == ruleIndex ? choice : draft.choice
       result.untilRevoked = choice.untilRevoked; result.expiry = choice.expiry
       return result
     }
+  }
+  func hierarchyRules() throws -> [NativeGrantChoice] {
+    guard let inbox else { throw NativeGrantError.invalid }
+    return try hierarchy.rules(permissions: inbox.permissions, validity: choice)
+  }
+  func useAdvancedRules() {
+    guard hierarchyMode else { return }
+    do {
+      let rules = try hierarchyRules()
+      ruleDrafts = rules.isEmpty ? [RuleDraft(choice: choice)] : rules.map { RuleDraft(choice: $0, scopeMode: "paths", arenaReadEnabled: !$0.arenaIDs.isEmpty) }
+      ruleIndex = 0; choice = ruleDrafts[0].choice; scopeMode = ruleDrafts[0].scopeMode
+      arenaReadEnabled = ruleDrafts[0].arenaReadEnabled; futureArenaMode = false; exactIDText = [:]
+      hierarchyMode = false; editedPermissions()
+    } catch { self.error = NativeCredentialDiagnostic.message(error) }
+  }
+  func setHierarchy(_ row: WorkScopeOption, access: NativeHierarchyPermissions.Access, enabled: Bool) {
+    do { try hierarchy.set(row.resource_path, access, enabled: enabled); editedPermissions() }
+    catch { self.error = "Select at most 16 independent branches in each column. Your earlier selection is preserved." }
+  }
+  func hierarchyAvailable(_ row: WorkScopeOption, access: NativeHierarchyPermissions.Access) -> Bool {
+    guard let inbox, let selected else { return false }
+    if access == .write && inbox.activation["write"] as? Bool == false { return false }
+    if inbox.activation["mixed"] as? Bool == false &&
+      (access == .read ? !hierarchy.writePaths.isEmpty : !hierarchy.readPaths.isEmpty) { return false }
+    do {
+      var single = NativeHierarchyPermissions(); try single.set(row.resource_path, access, enabled: true)
+      _ = try NativeGrantSelection.makeRules(ceiling: inbox.ceiling, ceilingDigest: inbox.digest,
+        recipient: selected, rules: single.rules(permissions: inbox.permissions, validity: choice), scopes: inbox.scopes, now: Int(Date().timeIntervalSince1970))
+      return true
+    } catch { return false }
   }
   func ruleSummary(_ index: Int) -> String {
     let rule = index == ruleIndex ? choice : ruleDrafts[index].choice
@@ -202,7 +239,7 @@ import ZenithKit
   func reviewSelection() {
     run { [self] in
       guard let inbox, let selected, let client else { throw NativeGrantError.invalid }
-      let rules = permissionRules
+      let rules = try hierarchyMode ? hierarchyRules() : advancedRules
       if rules.contains(where: { $0.allArenas }) && !canReadFutureArenas { throw NativeGrantError.permissions }
       if rules.contains(where: { !$0.writes.isEmpty }) && inbox.activation["write"] as? Bool == false { throw NativeGrantError.permissions }
       if rules.contains(where: { !$0.reads.isEmpty || !$0.arenaIDs.isEmpty || $0.allArenas }) && rules.contains(where: { !$0.writes.isEmpty }) && inbox.activation["mixed"] as? Bool == false { throw NativeGrantError.permissions }
@@ -497,6 +534,11 @@ struct ResolvedTransferOperatorView: View {
           Button("Approve this credential in Wallet") { editor.approveSelection() }.buttonStyle(TransferPrimaryButtonStyle()).disabled(!unlocked || !editing)
         }
       } else {
+        if editor.hierarchyMode {
+          NativeHierarchyPermissionView(editor: editor, inbox: inbox, serviceName: bridge.resource.configuration.name)
+          Button("Advanced rules and other write actions") { editor.useAdvancedRules() }
+            .font(.callout)
+        } else {
         Text("Permission rules").font(.headline)
         Text("Each rule pairs its own scope with its actions. For example: read Arena A in one rule, edit Project B in another. No matching rule means no access. A selected parent includes its descendants; unchecked children are not exclusions.").font(.callout).foregroundStyle(.secondary)
         ForEach(Array(editor.ruleDrafts.enumerated()), id: \.element.id) { index, _ in
@@ -512,6 +554,7 @@ struct ResolvedTransferOperatorView: View {
         presetPicker(inbox)
         scopeChoices(inbox)
         permissionChoices(inbox)
+        }
         validityChoices(inbox)
         Button("Review exact selection in Wallet") { editor.reviewSelection() }.buttonStyle(TransferPrimaryButtonStyle())
           .disabled(!unlocked || !editing || editor.permissionRules.allSatisfy { $0.reads.isEmpty && $0.writes.isEmpty && $0.arenaIDs.isEmpty && !$0.allArenas })
