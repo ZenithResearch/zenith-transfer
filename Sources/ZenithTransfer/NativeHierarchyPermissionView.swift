@@ -9,6 +9,7 @@ struct NativeHierarchyPermissionView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       Text("Choose access by resource").font(.headline)
+      if let message = editor.hierarchyError { Text(message).foregroundStyle(.red).accessibilityAddTraits(.updatesFrequently) }
       Text("Expand an Arena, Initiative or Project and choose Read, Write, or both. Access includes that branch’s current and future Work descendants; it does not include sibling branches.")
         .font(.callout).foregroundStyle(.secondary)
       HStack {
@@ -28,6 +29,7 @@ struct NativeHierarchyPermissionView: View {
       else if inbox.activation["mixed"] as? Bool == false { Text("This server requires separate read and write credentials.").font(.caption).foregroundStyle(.secondary) }
       Text("\(editor.hierarchy.readPaths.count) read branches · \(editor.hierarchy.writePaths.count) write branches")
         .font(.caption).foregroundStyle(.secondary)
+      if let message = editor.hierarchyError { Text(message).font(.callout).foregroundStyle(.red) }
     }
   }
   private func hierarchyRow(_ row: WorkScopeTreeNode, depth: Int) -> AnyView {

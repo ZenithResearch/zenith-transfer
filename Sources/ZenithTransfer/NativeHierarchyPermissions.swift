@@ -10,6 +10,7 @@ struct NativeHierarchyPermissions: Equatable {
   var writePaths: [WorkResourcePath] = []
   static let writeActions: Set<String> = ["devgraph.work.patch.v2"]
   static let workKinds: Set<String> = ["Initiative", "Project", "Issue", "Task"]
+  static let maximumBranches = 256
 
   func paths(_ access: Access) -> [WorkResourcePath] { access == .read ? readPaths : writePaths }
   func includes(_ path: WorkResourcePath, _ access: Access) -> Bool {
@@ -20,32 +21,46 @@ struct NativeHierarchyPermissions: Equatable {
   }
   mutating func set(_ path: WorkResourcePath, _ access: Access, enabled: Bool) throws {
     let old = paths(access)
-    let updated = try WorkScopeSelection.normalized(enabled ? old + [path] : old.filter { $0 != path })
+    let updated = try Self.minimal(enabled ? old + [path] : old.filter { $0 != path })
     if access == .read { readPaths = updated } else { writePaths = updated }
+  }
+  private static func minimal(_ paths: [WorkResourcePath]) throws -> [WorkResourcePath] {
+    var unique: [WorkResourcePath] = []
+    for path in paths {
+      try path.validate()
+      if !unique.contains(path) { unique.append(path) }
+    }
+    let roots = unique.filter { path in !unique.contains { $0 != path && WorkScopeSelection.covers($0, path) } }
+    guard roots.count <= maximumBranches else { throw NativeGrantError.scope }
+    return roots
   }
   func rules(permissions: NativeGrantPermissions, validity: NativeGrantChoice) throws -> [NativeGrantChoice] {
     var result: [NativeGrantChoice] = []
     for access in [Access.read, .write] {
-      let selected = paths(access)
-      guard !selected.isEmpty else { continue }
-      var rule = NativeGrantChoice()
-      rule.untilRevoked = validity.untilRevoked; rule.expiry = validity.expiry
-      rule.paths = try WorkScopeSelection.normalized(selected)
-      rule.kinds = Self.workKinds.intersection(permissions.kinds)
-      if access == .read {
-        rule.reads = Set(permissions.reads)
-        // Reading a Project doesn't silently add its containing Arena record.
-        let arenaIDs = selected.compactMap { path -> String? in
-          guard let last = path.path.last, last.hasPrefix("Arena/") else { return nil }
-          return String(last.dropFirst(6))
+      let selected = try Self.minimal(paths(access))
+      // Each existing wire rule still has at most 16 paths. Several rules are
+      // an exact union, never a promotion to an Arena or unrestricted scope.
+      for start in stride(from: 0, to: selected.count, by: 16) {
+        let chunk = Array(selected[start..<min(start + 16, selected.count)])
+        var rule = NativeGrantChoice()
+        rule.untilRevoked = validity.untilRevoked; rule.expiry = validity.expiry
+        rule.paths = try WorkScopeSelection.normalized(chunk)
+        rule.kinds = Self.workKinds.intersection(permissions.kinds)
+        if access == .read {
+          rule.reads = Set(permissions.reads)
+          // Reading a Project doesn't silently add its containing Arena record.
+          let arenaIDs = chunk.compactMap { path -> String? in
+            guard let last = path.path.last, last.hasPrefix("Arena/") else { return nil }
+            return String(last.dropFirst(6))
+          }
+          rule.arenaIDs = Set(arenaIDs).intersection(permissions.arenaIDs)
+          guard !rule.reads.isEmpty || !rule.arenaIDs.isEmpty else { throw NativeGrantError.permissions }
+        } else {
+          rule.writes = Self.writeActions.intersection(permissions.writes)
+          guard !rule.writes.isEmpty else { throw NativeGrantError.permissions }
         }
-        rule.arenaIDs = Set(arenaIDs).intersection(permissions.arenaIDs)
-        guard !rule.reads.isEmpty || !rule.arenaIDs.isEmpty else { throw NativeGrantError.permissions }
-      } else {
-        rule.writes = Self.writeActions.intersection(permissions.writes)
-        guard !rule.writes.isEmpty else { throw NativeGrantError.permissions }
+        result.append(rule)
       }
-      result.append(rule)
     }
     return result
   }

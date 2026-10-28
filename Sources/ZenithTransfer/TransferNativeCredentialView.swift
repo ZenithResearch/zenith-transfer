@@ -27,6 +27,7 @@ import ZenithKit
   @Published var scopeMode = "choose"
   @Published var hierarchyMode = false
   @Published var hierarchy = NativeHierarchyPermissions()
+  @Published var hierarchyError: String?
   @Published var expanded: Set<String> = []
   @Published var review: [String: Any]?
   @Published var busy = false
@@ -93,7 +94,7 @@ import ZenithKit
     choice.untilRevoked = inbox.permissions.validity.notAfter == nil
     if let end = inbox.permissions.validity.notAfter { choice.expiry = Date(timeIntervalSince1970: Double(end)) }
     ruleDrafts = [RuleDraft(choice: choice)]; ruleIndex = 0
-    hierarchy = NativeHierarchyPermissions(); hierarchyMode = inbox.permissions.supportsPaths && inbox.catalog != nil
+    hierarchy = NativeHierarchyPermissions(); hierarchyError = nil; hierarchyMode = inbox.permissions.supportsPaths && inbox.catalog != nil
     declineReason = ""
     status = "Choose the permissions and resources for this credential. No access has been granted."
   }
@@ -183,8 +184,19 @@ import ZenithKit
     } catch { self.error = NativeCredentialDiagnostic.message(error) }
   }
   func setHierarchy(_ row: WorkScopeOption, access: NativeHierarchyPermissions.Access, enabled: Bool) {
-    do { try hierarchy.set(row.resource_path, access, enabled: enabled); editedPermissions() }
-    catch { self.error = "Select at most 16 independent branches in each column. Your earlier selection is preserved." }
+    do {
+      var candidate = hierarchy
+      try candidate.set(row.resource_path, access, enabled: enabled)
+      guard let inbox, let selected else { throw NativeGrantError.invalid }
+      let rules = try candidate.rules(permissions: inbox.permissions, validity: choice)
+      if !rules.isEmpty {
+        _ = try NativeGrantSelection.makeRules(ceiling: inbox.ceiling, ceilingDigest: inbox.digest,
+          recipient: selected, rules: rules, scopes: inbox.scopes, now: Int(Date().timeIntervalSince1970))
+      }
+      hierarchy = candidate; hierarchyError = nil; editedPermissions()
+    } catch {
+      hierarchyError = "This combination exceeds the grant’s supported limits or permitted scope. Your earlier selections are preserved. Narrow the selected branches or actions."
+    }
   }
   func hierarchyAvailable(_ row: WorkScopeOption, access: NativeHierarchyPermissions.Access) -> Bool {
     guard let inbox, let selected else { return false }

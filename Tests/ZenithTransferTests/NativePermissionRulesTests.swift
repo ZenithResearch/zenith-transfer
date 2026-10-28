@@ -93,10 +93,31 @@ final class NativePermissionRulesTests: XCTestCase {
   }
   func testHierarchyBranchBudgetPreservesPreviousDraftOnFailure() throws {
     var selection = NativeHierarchyPermissions()
-    for i in 0..<16 { try selection.set(WorkResourcePath(path: ["Arena/a-\(i)"]), .read, enabled: true) }
+    for i in 0..<NativeHierarchyPermissions.maximumBranches { try selection.set(WorkResourcePath(path: ["Arena/a-\(i)"]), .read, enabled: true) }
     let previous = selection
     XCTAssertThrowsError(try selection.set(WorkResourcePath(path: ["Arena/overflow"]), .read, enabled: true))
     XCTAssertEqual(selection, previous)
+  }
+  func testNineteenBranchesInEitherOrderCompileAsExactReadAndWriteUnions() throws {
+    let (ceiling, recipient) = try context()
+    let paths = try (0..<19).map { try WorkResourcePath(path:["Initiative/branch-\($0)"]) }
+    let scopes = paths.map { WorkScopeOption(resource_path:$0, resource:$0.path.last!, title:"Fixture", parent:nil) }
+    for ordered in [paths, Array(paths.reversed())] {
+      var selection = NativeHierarchyPermissions()
+      for path in ordered {
+        try selection.set(path, .read, enabled:true)
+        try selection.set(path, .write, enabled:true)
+      }
+      XCTAssertEqual(selection.readPaths.count, 19); XCTAssertEqual(selection.writePaths.count, 19)
+      let rules = try selection.rules(permissions:NativeGrantPermissions(ceiling), validity:NativeGrantChoice())
+      XCTAssertEqual(rules.count, 4)
+      XCTAssertTrue(rules.allSatisfy { !$0.wholeGraph && $0.paths.count <= 16 })
+      let result = try compile(rules, ceiling:ceiling, recipient:recipient, scopes:scopes)
+      for side in ["read", "write"] {
+        let grants = (result[side] as! [String:Any])[side + "_grants"] as! [[String:Any]]
+        XCTAssertEqual(Set(try grants.flatMap { try NativeGrantSelection.paths($0) }), Set(paths))
+      }
+    }
   }
   func testClosedWalletDiagnosticsDistinguishContextAndValidationFailures() {
     XCTAssertTrue(NativeCredentialDiagnostic.message(WalletFailure.core("service_binding_expired")).contains("connection expired"))
@@ -118,9 +139,13 @@ final class NativePermissionRulesTests: XCTestCase {
     let parent = try WorkResourcePath(path: ["Arena/design"])
     let child = try WorkResourcePath(path: ["Arena/design", "Project/dashboard"])
     let other = try WorkResourcePath(path: ["Arena/research"])
+    let additional = try (0..<19).map { index -> WorkScopeOption in
+      let id = "Initiative/extra-\(index)"
+      return WorkScopeOption(resource_path:try WorkResourcePath(path:[id]), resource:id, title:"Extra \(index)", parent:nil)
+    }
     let scopes = [WorkScopeOption(resource_path: parent, resource: "Arena/design", title: "Design", parent: nil),
       WorkScopeOption(resource_path: child, resource: "Project/dashboard", title: "Dashboard", parent: "Arena/design"),
-      WorkScopeOption(resource_path: other, resource: "Arena/research", title: "Research", parent: nil)]
+      WorkScopeOption(resource_path: other, resource: "Arena/research", title: "Research", parent: nil)] + additional
     var catalog: [String: Any] = ["schema":"devgraph.access-catalog.v1", "issuer":configuration.issuer,
       "receiver":configuration.authorityOrigin, "revision":1, "presets":[Any](), "published_paths":[Any](), "policy_digest_sha256":String(repeating:"a",count:64)]
     catalog["catalog_digest_sha256"] = try GrantJSON.digest(catalog)
@@ -133,7 +158,6 @@ final class NativePermissionRulesTests: XCTestCase {
     model.setHierarchy(scopes[0], access: .read, enabled: true)
     model.setHierarchy(scopes[1], access: .write, enabled: true)
     model.expanded = [scopes[0].id]
-    let before = try compile(model.permissionRules, ceiling: ceiling, recipient: recipient, scopes: scopes)
     if let output = ProcessInfo.processInfo.environment["NATIVE_HIERARCHY_QA_DIRECTORY"] {
       let view = NSHostingView(rootView: NativeHierarchyPermissionView(editor: model, inbox: inbox, serviceName: "DevGraph · Design team").padding(24).frame(width:900).background(Color.white).environment(\.colorScheme, .light))
       view.frame = NSRect(x:0,y:0,width:900,height:520); view.layoutSubtreeIfNeeded()
@@ -141,6 +165,13 @@ final class NativePermissionRulesTests: XCTestCase {
       view.cacheDisplay(in:view.bounds,to:bitmap)
       try XCTUnwrap(bitmap.representation(using:.png, properties:[:])).write(to:URL(fileURLWithPath:output).appendingPathComponent("hierarchy-light.png"))
     }
+    for row in additional {
+      model.setHierarchy(row, access:.read, enabled:true)
+      model.setHierarchy(row, access:.write, enabled:true)
+    }
+    XCTAssertNil(model.hierarchyError)
+    XCTAssertEqual(model.hierarchy.readPaths.count, 20); XCTAssertEqual(model.hierarchy.writePaths.count, 20)
+    let before = try compile(model.permissionRules, ceiling:ceiling, recipient:recipient, scopes:scopes)
     model.useAdvancedRules()
     XCTAssertFalse(model.hierarchyMode)
     let after = try compile(model.permissionRules, ceiling: ceiling, recipient: recipient, scopes: scopes)
