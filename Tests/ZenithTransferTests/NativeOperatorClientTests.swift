@@ -2,7 +2,7 @@
 #if os(macOS)
 import Foundation
 import XCTest
-import ZenithKit
+@testable import ZenithKit
 @testable import ZenithTransfer
 
 private final class NativeOperatorResponse: URLProtocol {
@@ -57,6 +57,12 @@ final class NativeOperatorClientTests: XCTestCase {
     defer { NativeOperatorResponse.observer = nil }
     try await exerciseInboxRecovery(localRPC: true)
     XCTAssertEqual(httpCalls, 0)
+  }
+  @MainActor func testScopedReadRPCReviewActivationAndRecoveryPreserveOriginal() async throws {
+    try await exerciseInboxRecovery(localRPC: true, actionSchema: "devgraph.access-operator-action.v12")
+  }
+  @MainActor func testScopedWriteRPCReviewActivationAndRecoveryPreserveOriginal() async throws {
+    try await exerciseInboxRecovery(localRPC: true, actionSchema: "devgraph.access-operator-action.v13")
   }
   @MainActor func testRejectedPreparationReportsSafeCodeWithoutSavingOrSigningAnAction() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -217,7 +223,7 @@ final class NativeOperatorClientTests: XCTestCase {
       XCTAssertNil(try bridge.retainedNativeAction())
     }
   }
-  @MainActor private func exerciseInboxRecovery(localRPC: Bool) async throws {
+  @MainActor private func exerciseInboxRecovery(localRPC: Bool, actionSchema: String = "devgraph.access-operator-action.v6") async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root); NativeOperatorResponse.handler = nil }
     let (repo, resource, transport) = try await fixture(root), journals = root.appendingPathComponent("actions")
@@ -230,7 +236,9 @@ final class NativeOperatorClientTests: XCTestCase {
     XCTAssertEqual(bridge.transportLabel, localRPC ? "Local secS RPC · Wallet-authenticated" : "HTTPS · Wallet-authenticated")
     defer { bridge.cancel() }
     var client = try NativeOperatorClient(bridge: bridge)
-    let ceiling: [String: Any] = ["schema":"devgraph.access-draft.v5", "issuer":"fixture", "receiver":resource.id, "lifetime_seconds":300, "validity":["schema":"castalia.grant-validity.v1", "mode":"until_revoked", "not_before":1], "read_grants":[["scope":"devgraph.work.read", "operations":["list","get"], "relationship_types":[], "work_kinds":["Task"], "include_archived":false]], "write_grants":[]]
+    var ceiling: [String: Any] = ["schema":"devgraph.access-draft.v5", "issuer":"fixture", "receiver":resource.id, "lifetime_seconds":300, "validity":["schema":"castalia.grant-validity.v1", "mode":"until_revoked", "not_before":1], "read_grants":[["scope":"devgraph.work.read", "operations":["list","get"], "relationship_types":[], "work_kinds":["Task"], "include_archived":false]], "write_grants":[]]
+    let writing = actionSchema == "devgraph.access-operator-action.v13"
+    if writing { ceiling["write_grants"] = [["operation":"devgraph.work.patch.v2", "resources":[["kind":"Task"]]]] }
     let recipient: [String: Any] = ["request_id":String(repeating:"a",count:32),"request_digest_sha256":String(repeating:"b",count:64),"subject_public_key":String(repeating:"c",count:64),"installation_id":String(repeating:"d",count:32),"version":1]
     var decisions = 0, actions = 0, originalResult: [String: Any]?
     NativeOperatorResponse.handler = { input, path in
@@ -243,7 +251,7 @@ final class NativeOperatorClientTests: XCTestCase {
       case "inbox":
         result["ceiling"] = ceiling; result["ceiling_digest_sha256"] = try GrantJSON.digest(ceiling)
         result["inbox"] = ["items":[recipient],"total":1,"next_cursor":NSNull()]
-        result["activation"] = ["read":true,"read_action_schema":"devgraph.access-operator-action.v6"]
+        result["activation"] = ["read":true, "write":writing, "read_action_schema":writing ? "devgraph.access-operator-action.v12" : actionSchema, "write_action_schema":"devgraph.access-operator-action.v13"]
       case "review":
         let selection = action["selection"]!
         result.merge(["request_id":action["request_id"]!, "request_digest_sha256":action["request_digest_sha256"]!, "expected_version":1, "review_id":action["action_id"]!, "selection":selection, "selection_digest_sha256":try GrantJSON.digest(selection), "plans":["activation":["assignment_digest":try NativeOperatorClient.assignmentDigest(action), "previous_assignment_digest":NSNull()]]]) { _, b in b }
@@ -262,8 +270,18 @@ final class NativeOperatorClientTests: XCTestCase {
     XCTAssertEqual(actions,0, "Preparation cannot dispatch an operator action")
     let inbox = try NativeOperatorInbox(await consent(client, operation: "access.inbox"), resource: resource)
     var choice = NativeGrantChoice(); choice.wholeGraph = true; choice.reads = ["get"]; choice.kinds = ["Task"]
-    let selection = try NativeGrantSelection.make(ceiling: inbox.ceiling, ceilingDigest: inbox.digest, recipient: inbox.requests[0], choice: choice, scopes: [], now: client.now)
-    var fields: [String: Any] = ["schema":"devgraph.access-operator-action.v6","action":"review","request_id":recipient["request_id"]!,"request_digest_sha256":recipient["request_digest_sha256"]!,"expected_version":1,"previous_assignment_digest":NSNull(),"selection":selection]
+    if writing { choice.writes = ["devgraph.work.patch.v2"] }
+    let selection: [String: Any]
+    if ["devgraph.access-operator-action.v12", "devgraph.access-operator-action.v13"].contains(actionSchema) {
+      let path = try WorkResourcePath(path:["Arena/fixture"])
+      choice.wholeGraph = false; choice.paths = [path]
+      selection = try NativeGrantSelection.makeRules(ceiling:inbox.ceiling, ceilingDigest:inbox.digest,
+        recipient:inbox.requests[0], rules:[choice], scopes:[WorkScopeOption(resource_path:path, resource:"Arena/fixture", title:"Fixture", parent:nil)], now:client.now)
+    } else {
+      selection = try NativeGrantSelection.make(ceiling:inbox.ceiling, ceilingDigest:inbox.digest, recipient:inbox.requests[0], choice:choice, scopes:[], now:client.now)
+    }
+    XCTAssertEqual(inbox.actionSchema(writes:writing), actionSchema)
+    var fields: [String: Any] = ["schema":actionSchema,"action":"review","request_id":recipient["request_id"]!,"request_digest_sha256":recipient["request_digest_sha256"]!,"expected_version":1,"previous_assignment_digest":NSNull(),"selection":selection]
     try await client.prepare(fields)
     let review = try await consent(client, operation: "access.review")
     XCTAssertTrue(GrantJSON.equal(review["selection"], selection)); XCTAssertEqual(decisions,0)

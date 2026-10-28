@@ -3,6 +3,9 @@ import Foundation
 
 /// Public original-action recovery only. It never contains a signature or key.
 public final class OperatorJournal {
+  // Keep the closed set in sync with the supported operator actions. v12/v13
+  // carry scoped resource rules; they need the same durable recovery as v1-v11.
+  private static let actionSchemas = Set((1...13).map { "devgraph.access-operator-action.v\($0)" })
   private let file: URL
   private let origin: String
   public init(directory: URL, origin: String) throws {
@@ -23,8 +26,7 @@ public final class OperatorJournal {
       let action = p["action"] as? [String: Any],
       (action["action_id"] as? String)?.range(of: "^[a-f0-9]{32}$", options: .regularExpression) != nil,
       ["inbox","review","approve","deny","revoke","upgrade_arena_policy","create_arena"].contains(action["action"] as? String ?? ""),
-      (1...11).contains(Int((action["schema"] as? String ?? "").split(separator: ".").last?.dropFirst() ?? "") ?? 0),
-      (action["schema"] as? String)?.hasPrefix("devgraph.access-operator-action.v") == true,
+      Self.actionSchemas.contains(action["schema"] as? String ?? ""),
       (action["action"] as? String == "upgrade_arena_policy") == (action["schema"] as? String == "devgraph.access-operator-action.v10"),
       (action["action"] as? String == "create_arena") == (action["schema"] as? String == "devgraph.access-operator-action.v11"),
       p["dispatched"] is Bool,

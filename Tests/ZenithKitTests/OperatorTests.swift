@@ -68,4 +68,47 @@ final class OperatorTests: XCTestCase {
     XCTAssertEqual(try reopened.load(),original)
     try reopened.clear(matching:original); XCTAssertNil(try reopened.load())
   }
+
+  func testScopedActionJournalsSurviveRestartWithoutChangingOriginal() throws {
+    for version in [12, 13] {
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let origin = "https://work.example"
+      let journal = try OperatorJournal(directory: root, origin: origin)
+      var value: [String: Any] = ["schema":"devgraph.operator-pending.v1", "origin":origin,
+        "identity":["subject_public_key":String(repeating:"11",count:32), "installation_id":String(repeating:"22",count:16)],
+        "action":["schema":"devgraph.access-operator-action.v\(version)", "action":"review", "action_id":String(repeating:"33",count:16)],
+        "assignment_digest":String(repeating:"44",count:32), "dispatched":false]
+      func data(_ v: [String: Any]) throws -> Data { try JSONSerialization.data(withJSONObject:v, options:.sortedKeys) }
+      try journal.save(data(value))
+      value["dispatched"] = true
+      let dispatched = try data(value); try journal.save(dispatched)
+      let reopened = try OperatorJournal(directory:root, origin:origin)
+      XCTAssertEqual(try reopened.load(), dispatched)
+      var changed = value; changed["dispatched"] = false
+      XCTAssertThrowsError(try reopened.save(data(changed)))
+      changed = value
+      var action = changed["action"] as! [String: Any]; action["action_id"] = String(repeating:"55",count:16)
+      changed["action"] = action
+      XCTAssertThrowsError(try reopened.save(data(changed)))
+      XCTAssertEqual(try reopened.load(), dispatched)
+      try reopened.clear(matching:dispatched)
+    }
+  }
+
+  func testJournalRejectsUnknownAndNoncanonicalActionSchemas() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:root) }
+    let origin = "https://work.example", journal = try OperatorJournal(directory:root, origin:"https://work.example")
+    for schema in ["devgraph.access-operator-action.v0", "devgraph.access-operator-action.v14",
+                   "devgraph.access-operator-action.v01", "devgraph.access-operator-action.extra.v1",
+                   "other.access-operator-action.v12"] {
+      let value: [String: Any] = ["schema":"devgraph.operator-pending.v1", "origin":origin,
+        "identity":["subject_public_key":String(repeating:"11",count:32), "installation_id":String(repeating:"22",count:16)],
+        "action":["schema":schema, "action":"review", "action_id":String(repeating:"33",count:16)],
+        "assignment_digest":NSNull(), "dispatched":false]
+      XCTAssertThrowsError(try journal.save(JSONSerialization.data(withJSONObject:value)), schema)
+      XCTAssertNil(try journal.load())
+    }
+  }
 }

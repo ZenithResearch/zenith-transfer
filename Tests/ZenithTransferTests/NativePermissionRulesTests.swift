@@ -100,6 +100,7 @@ final class NativePermissionRulesTests: XCTestCase {
   }
   func testClosedWalletDiagnosticsDistinguishContextAndValidationFailures() {
     XCTAssertTrue(NativeCredentialDiagnostic.message(WalletFailure.core("service_binding_expired")).contains("connection expired"))
+    XCTAssertTrue(NativeCredentialDiagnostic.message(WalletFailure.core("invalid_operator_recovery")).contains("invalid_operator_recovery"))
     XCTAssertTrue(NativeCredentialDiagnostic.message(WalletFailure.core("invalid_access_request")).contains("No decision was signed"))
     XCTAssertFalse(NativeCredentialDiagnostic.message(WalletFailure.core("private arbitrary payload")).contains("private arbitrary payload"))
   }

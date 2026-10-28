@@ -70,6 +70,8 @@ enum NativeCredentialDiagnostic {
         return "The approval expired or is no longer available. Resume the original action to refresh its review. (\(code))"
       case "operator_recovery_required", "recover_original_action_first":
         return "Check the original action’s result before preparing another decision. Its request is preserved. (\(code))"
+      case "invalid_operator_recovery":
+        return "The original action record could not be validated. Keep it for recovery and update Transfer before continuing. (invalid_operator_recovery)"
       case "approval_denied": return "Wallet review was cancelled. No new decision was signed."
       default: break
       }
