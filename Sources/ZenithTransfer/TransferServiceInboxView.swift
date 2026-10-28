@@ -29,7 +29,9 @@ import ZenithKit
   func load(after: String? = nil) async {
     error = nil
     do {
-      guard editor.state == .idle else { throw NativeGrantError.recovery }
+      guard editor.state == .idle else {
+        throw editor.state == .prepared && !editor.isRecovery ? NativeGrantError.notSent : NativeGrantError.recovery
+      }
       try await editor.loadServiceInbox(after: after)
       guard let inbox = editor.inbox else { throw NativeGrantError.invalid }
       try snapshot.accept(inbox, authority: id, append: after != nil)
@@ -204,7 +206,7 @@ struct TransferServiceInboxView: View {
     if let failure = endpoint.bridge.failure { Text(failure).foregroundStyle(.red) }
     if let error = endpoint.error { Text(endpoint.id + "\n" + error).foregroundStyle(.red).textSelection(.enabled) }
     if endpoint.editor.state != .idle {
-      Button("Recover retained action · " + endpoint.id) { selected = endpoint }.disabled(model.busy)
+      Button((endpoint.editor.state == .prepared && !endpoint.editor.isRecovery ? "Resume retained action · " : "Recover retained action · ") + endpoint.id) { selected = endpoint }.disabled(model.busy)
     }
     if endpoint.snapshot.next != nil {
       Button("Load more requests · " + endpoint.id) { Task { await model.more(endpoint) } }.disabled(model.busy || !walletModel.walletUnlocked)

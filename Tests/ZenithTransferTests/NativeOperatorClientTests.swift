@@ -84,6 +84,44 @@ final class NativeOperatorClientTests: XCTestCase {
     let untrusted = NativeOperatorServerError(status: 400, code: "private arbitrary server text")
     XCTAssertFalse(untrusted.errorDescription!.contains("private arbitrary server text"))
   }
+  @MainActor func testJournalWriteFailureBeforeDispatchRetainsExactPreparedAction() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let journals = root.appendingPathComponent("actions")
+    defer {
+      try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: journals.path)
+      try? FileManager.default.removeItem(at: root)
+    }
+    let (repo, resource, _) = try await fixture(root)
+    var executions = 0
+    let bridge = TransferOperatorBridge(resource: resource, repository: repo,
+      journalDirectory: journals, rpcExchange: { operation, bytes in
+        if operation != "challenge" { executions += 1; XCTFail("No action may cross a failed durable dispatch boundary") }
+        return PrivateHTTPResponse(status: 200, data: try GrantJSON.data(self.challenge(GrantJSON.object(bytes))))
+      })
+    defer { bridge.cancel() }
+    let client = try NativeOperatorClient(bridge: bridge)
+    try await client.prepare(["action": "inbox"])
+    let retained = try XCTUnwrap(bridge.retainedNativeAction())
+    let originalID = client.action?["action_id"] as? String
+    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: journals.path)
+    do {
+      _ = try await consent(client, operation: "access.inbox")
+      XCTFail("A failed journal write must stop dispatch")
+    } catch let error as NativeGrantError {
+      guard case .notSent = error else { return XCTFail("Expected a confirmed pre-dispatch failure") }
+    }
+    XCTAssertEqual(executions, 0)
+    XCTAssertEqual(client.state, .prepared)
+    XCTAssertNil(client.challenge, "Resuming must obtain fresh consent")
+    XCTAssertEqual(try bridge.retainedNativeAction(), retained)
+    XCTAssertEqual(client.original?["dispatched"] as? Bool, false)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: journals.path)
+    try await client.refreshPrepared()
+    XCTAssertEqual(client.action?["action_id"] as? String, originalID)
+    XCTAssertEqual(executions, 0, "Resuming preparation never dispatches automatically")
+    try await client.cancelPrepared()
+    XCTAssertNil(try bridge.retainedNativeAction())
+  }
   @MainActor func testOwnerArenaReviewPersistsExpandedSelectionAndRecoversOriginalApply() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
