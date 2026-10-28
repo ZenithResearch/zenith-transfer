@@ -355,9 +355,10 @@ public final class OwnerSetupStore {
 struct OwnerPlanJSON {
   let bytes: [UInt8]; var cursor = 0
   let maximumBytes: Int, maximumKeys: Int, maximumArray: Int, maximumDepth: Int
-  init(_ data: Data, maximumBytes: Int = 65536, maximumKeys: Int = 20, maximumArray: Int = 64, maximumDepth: Int = 8) {
+  let allowNegativeIntegers: Bool
+  init(_ data: Data, maximumBytes: Int = 65536, maximumKeys: Int = 20, maximumArray: Int = 64, maximumDepth: Int = 8, allowNegativeIntegers: Bool = false) {
     bytes = Array(data); self.maximumBytes = maximumBytes; self.maximumKeys = maximumKeys
-    self.maximumArray = maximumArray; self.maximumDepth = maximumDepth
+    self.maximumArray = maximumArray; self.maximumDepth = maximumDepth; self.allowNegativeIntegers = allowNegativeIntegers
   }
   mutating func space() { while cursor < bytes.count && [9,10,13,32].contains(bytes[cursor]) { cursor += 1 } }
   mutating func take(_ byte: UInt8) throws {
@@ -398,10 +399,13 @@ struct OwnerPlanJSON {
       for literal in ["true", "false", "null"] {
         if bytes[cursor...].starts(with: Array(literal.utf8)) { cursor += literal.utf8.count; return }
       }
+      let negative = allowNegativeIntegers && bytes[cursor] == 45
+      if negative { cursor += 1 }
       let start = cursor
       while cursor < bytes.count && (48...57).contains(bytes[cursor]) { cursor += 1 }
       guard cursor > start, cursor - start == 1 || bytes[start] != 48,
-        let value = UInt64(String(decoding: bytes[start..<cursor], as: UTF8.self)), value <= 9_007_199_254_740_991 else { throw OwnerSetupError.invalid }
+        let value = UInt64(String(decoding: bytes[start..<cursor], as: UTF8.self)), value <= 9_007_199_254_740_991,
+        !negative || value != 0 else { throw OwnerSetupError.invalid }
     }
   }
   mutating func validate() throws {

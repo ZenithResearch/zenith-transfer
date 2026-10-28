@@ -1,0 +1,525 @@
+{
+  "schema": "zenith.session-access-fixtures.v1",
+  "candidate_only": true,
+  "simulated": true,
+  "sources": {
+    "devgraph": "009e91b4be47768dc65206e5bf69bf17afabc19a",
+    "secs": "61e8d6c4a134be4287cc55284f472a624c378181",
+    "wallet": "d3731fc0855f5a997b42161193554d555b4e54a2"
+  },
+  "unsupported": {
+    "schema": "zenith.session-access-capabilities.v1",
+    "provider": {
+      "service": "urn:zenith:service:example-devgraph",
+      "issuer": "example-devgraph",
+      "key_id": "example-provider-v1",
+      "public_key": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "profile_digest_sha256": "abababababababababababababababababababababababababababababababab",
+      "policy_binding": {
+        "policy_id": "example-provider-policy",
+        "policy_version": 1,
+        "policy_digest_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      }
+    },
+    "profile": "secs.holder-grant.v2",
+    "session_key_enrollment": false,
+    "session_read_issuance": false,
+    "session_write_issuance": false,
+    "session_request_execution": false,
+    "expiry_limits": {
+      "minimum_seconds": 60,
+      "default_seconds": 3600,
+      "maximum_seconds": 3600
+    },
+    "reason": "session_integration_not_qualified"
+  },
+  "simulated_read_qualified": {
+    "schema": "zenith.session-access-capabilities.v1",
+    "provider": {
+      "service": "urn:zenith:service:example-devgraph",
+      "issuer": "example-devgraph",
+      "key_id": "example-provider-v1",
+      "public_key": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "profile_digest_sha256": "abababababababababababababababababababababababababababababababab",
+      "policy_binding": {
+        "policy_id": "example-provider-policy",
+        "policy_version": 1,
+        "policy_digest_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      }
+    },
+    "profile": "secs.holder-grant.v2",
+    "session_key_enrollment": true,
+    "session_read_issuance": true,
+    "session_write_issuance": false,
+    "session_request_execution": true,
+    "expiry_limits": {
+      "minimum_seconds": 60,
+      "default_seconds": 3600,
+      "maximum_seconds": 3600
+    },
+    "reason": null
+  },
+  "initial_review": {
+    "manifest": {
+      "schema": "zenith.session-access-review.v1",
+      "request_id": "01010101010101010101010101010101",
+      "review_revision": 1,
+      "provider": {
+        "service": "urn:zenith:service:example-devgraph",
+        "issuer": "example-devgraph",
+        "key_id": "example-provider-v1",
+        "public_key": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "profile_digest_sha256": "abababababababababababababababababababababababababababababababab",
+        "policy_binding": {
+          "policy_id": "example-provider-policy",
+          "policy_version": 1,
+          "policy_digest_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+        }
+      },
+      "holder": {
+        "session_handle": "session_example",
+        "public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "installation_id": "02020202020202020202020202020202"
+      },
+      "permissions": [
+        {
+          "operation": "devgraph.work.get",
+          "resource": "https://work.zenith-research.ca/devgraph",
+          "roles": [
+            {
+              "role": "target",
+              "selector": {
+                "schema": "secs.resource-selector.v1",
+                "service": "urn:zenith:service:example-devgraph",
+                "kinds": [
+                  "Task"
+                ],
+                "selection": {
+                  "mode": "objects",
+                  "refs": [
+                    {
+                      "kind": "Task",
+                      "id": "example-task"
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "constraints": {
+            "scope": "devgraph.work.read",
+            "operations": [
+              "get"
+            ],
+            "relationship_types": [
+              "parent"
+            ],
+            "work_kinds": [
+              "Task"
+            ],
+            "include_archived": false,
+            "work_ids": [
+              "Task/example-task"
+            ]
+          }
+        }
+      ],
+      "not_before": 2000000000,
+      "expires_at": 2000003600,
+      "review_deadline": 2000000120,
+      "challenge_id": "03030303030303030303030303030303",
+      "display": {
+        "session_label": "Example coding session",
+        "purpose": "Read one task"
+      }
+    },
+    "review_digest_sha256": "fd38f1b5bf0fe8395a08078cb9d09e371174c85cd20f20fbacc567f40972d5b0",
+    "state": "awaiting_human",
+    "request_handle": "request_example"
+  },
+  "expiry_adjusted_review": {
+    "manifest": {
+      "schema": "zenith.session-access-review.v1",
+      "request_id": "01010101010101010101010101010101",
+      "review_revision": 2,
+      "provider": {
+        "service": "urn:zenith:service:example-devgraph",
+        "issuer": "example-devgraph",
+        "key_id": "example-provider-v1",
+        "public_key": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "profile_digest_sha256": "abababababababababababababababababababababababababababababababab",
+        "policy_binding": {
+          "policy_id": "example-provider-policy",
+          "policy_version": 1,
+          "policy_digest_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+        }
+      },
+      "holder": {
+        "session_handle": "session_example",
+        "public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "installation_id": "02020202020202020202020202020202"
+      },
+      "permissions": [
+        {
+          "operation": "devgraph.work.get",
+          "resource": "https://work.zenith-research.ca/devgraph",
+          "roles": [
+            {
+              "role": "target",
+              "selector": {
+                "schema": "secs.resource-selector.v1",
+                "service": "urn:zenith:service:example-devgraph",
+                "kinds": [
+                  "Task"
+                ],
+                "selection": {
+                  "mode": "objects",
+                  "refs": [
+                    {
+                      "kind": "Task",
+                      "id": "example-task"
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "constraints": {
+            "scope": "devgraph.work.read",
+            "operations": [
+              "get"
+            ],
+            "relationship_types": [
+              "parent"
+            ],
+            "work_kinds": [
+              "Task"
+            ],
+            "include_archived": false,
+            "work_ids": [
+              "Task/example-task"
+            ]
+          }
+        }
+      ],
+      "not_before": 2000000000,
+      "expires_at": 2000001800,
+      "review_deadline": 2000000120,
+      "challenge_id": "04040404040404040404040404040404",
+      "display": {
+        "session_label": "Example coding session",
+        "purpose": "Read one task"
+      }
+    },
+    "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+    "state": "awaiting_human",
+    "request_handle": "request_example"
+  },
+  "stale_review_rejection": {
+    "error": "review_changed",
+    "expected_review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20"
+  },
+  "write_rejection": {
+    "error": "session_write_issuance_unavailable",
+    "authority_changed": false
+  },
+  "results": [
+    {
+      "schema": "zenith.session-access-result.v1",
+      "request_handle": "request_example",
+      "request_id": "01010101010101010101010101010101",
+      "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+      "provider_service": "urn:zenith:service:example-devgraph",
+      "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "state": "prepared",
+      "credential_handle": null,
+      "expires_at": null,
+      "reconcile_required": false
+    },
+    {
+      "schema": "zenith.session-access-result.v1",
+      "request_handle": "request_example",
+      "request_id": "01010101010101010101010101010101",
+      "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+      "provider_service": "urn:zenith:service:example-devgraph",
+      "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "state": "awaiting_human",
+      "credential_handle": null,
+      "expires_at": null,
+      "reconcile_required": false
+    },
+    {
+      "schema": "zenith.session-access-result.v1",
+      "request_handle": "request_example",
+      "request_id": "01010101010101010101010101010101",
+      "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+      "provider_service": "urn:zenith:service:example-devgraph",
+      "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "state": "submitting",
+      "credential_handle": null,
+      "expires_at": null,
+      "reconcile_required": false
+    },
+    {
+      "schema": "zenith.session-access-result.v1",
+      "request_handle": "request_example",
+      "request_id": "01010101010101010101010101010101",
+      "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+      "provider_service": "urn:zenith:service:example-devgraph",
+      "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "state": "issued",
+      "credential_handle": "credential_example",
+      "expires_at": 2000001800,
+      "reconcile_required": false
+    },
+    {
+      "schema": "zenith.session-access-result.v1",
+      "request_handle": "request_example",
+      "request_id": "01010101010101010101010101010101",
+      "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+      "provider_service": "urn:zenith:service:example-devgraph",
+      "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "state": "denied",
+      "credential_handle": null,
+      "expires_at": null,
+      "reconcile_required": false
+    },
+    {
+      "schema": "zenith.session-access-result.v1",
+      "request_handle": "request_example",
+      "request_id": "01010101010101010101010101010101",
+      "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+      "provider_service": "urn:zenith:service:example-devgraph",
+      "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "state": "cancelled",
+      "credential_handle": null,
+      "expires_at": null,
+      "reconcile_required": false
+    },
+    {
+      "schema": "zenith.session-access-result.v1",
+      "request_handle": "request_example",
+      "request_id": "01010101010101010101010101010101",
+      "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+      "provider_service": "urn:zenith:service:example-devgraph",
+      "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "state": "expired",
+      "credential_handle": null,
+      "expires_at": null,
+      "reconcile_required": false
+    },
+    {
+      "schema": "zenith.session-access-result.v1",
+      "request_handle": "request_example",
+      "request_id": "01010101010101010101010101010101",
+      "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+      "provider_service": "urn:zenith:service:example-devgraph",
+      "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "state": "revoked",
+      "credential_handle": null,
+      "expires_at": null,
+      "reconcile_required": false
+    },
+    {
+      "schema": "zenith.session-access-result.v1",
+      "request_handle": "request_example",
+      "request_id": "01010101010101010101010101010101",
+      "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+      "provider_service": "urn:zenith:service:example-devgraph",
+      "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "state": "outcome_unknown",
+      "credential_handle": null,
+      "expires_at": null,
+      "reconcile_required": true
+    }
+  ],
+  "route_aliases": [
+    "https://127.0.0.1:18443",
+    "https://example-device.example-tailnet.ts.net:9443"
+  ],
+  "minimum_expiry_review": {
+    "manifest": {
+      "schema": "zenith.session-access-review.v1",
+      "request_id": "01010101010101010101010101010101",
+      "review_revision": 1,
+      "provider": {
+        "service": "urn:zenith:service:example-devgraph",
+        "issuer": "example-devgraph",
+        "key_id": "example-provider-v1",
+        "public_key": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "profile_digest_sha256": "abababababababababababababababababababababababababababababababab",
+        "policy_binding": {
+          "policy_id": "example-provider-policy",
+          "policy_version": 1,
+          "policy_digest_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+        }
+      },
+      "holder": {
+        "session_handle": "session_example",
+        "public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "installation_id": "02020202020202020202020202020202"
+      },
+      "permissions": [
+        {
+          "operation": "devgraph.work.get",
+          "resource": "https://work.zenith-research.ca/devgraph",
+          "roles": [
+            {
+              "role": "target",
+              "selector": {
+                "schema": "secs.resource-selector.v1",
+                "service": "urn:zenith:service:example-devgraph",
+                "kinds": [
+                  "Task"
+                ],
+                "selection": {
+                  "mode": "objects",
+                  "refs": [
+                    {
+                      "kind": "Task",
+                      "id": "example-task"
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "constraints": {
+            "scope": "devgraph.work.read",
+            "operations": [
+              "get"
+            ],
+            "relationship_types": [
+              "parent"
+            ],
+            "work_kinds": [
+              "Task"
+            ],
+            "include_archived": false,
+            "work_ids": [
+              "Task/example-task"
+            ]
+          }
+        }
+      ],
+      "not_before": 2000000000,
+      "expires_at": 2000000060,
+      "review_deadline": 2000000060,
+      "challenge_id": "03030303030303030303030303030303",
+      "display": {
+        "session_label": "Example coding session",
+        "purpose": "Read one task"
+      }
+    },
+    "review_digest_sha256": "2490be6257c277cef8d1430c24587f637b4c6f09a2d8fc5fe3e2ed8d5e3c4660",
+    "state": "awaiting_human",
+    "request_handle": "request_example"
+  },
+  "invalid_results": [
+    {
+      "name": "wrong_request",
+      "result": {
+        "schema": "zenith.session-access-result.v1",
+        "request_handle": "request_example",
+        "request_id": "ffffffffffffffffffffffffffffffff",
+        "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+        "provider_service": "urn:zenith:service:example-devgraph",
+        "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "state": "issued",
+        "credential_handle": "credential_example",
+        "expires_at": 2000001800,
+        "reconcile_required": false
+      }
+    },
+    {
+      "name": "wrong_holder",
+      "result": {
+        "schema": "zenith.session-access-result.v1",
+        "request_handle": "request_example",
+        "request_id": "01010101010101010101010101010101",
+        "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+        "provider_service": "urn:zenith:service:example-devgraph",
+        "holder_public_key": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "state": "issued",
+        "credential_handle": "credential_example",
+        "expires_at": 2000001800,
+        "reconcile_required": false
+      }
+    },
+    {
+      "name": "wrong_service",
+      "result": {
+        "schema": "zenith.session-access-result.v1",
+        "request_handle": "request_example",
+        "request_id": "01010101010101010101010101010101",
+        "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+        "provider_service": "urn:other-service",
+        "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "state": "issued",
+        "credential_handle": "credential_example",
+        "expires_at": 2000001800,
+        "reconcile_required": false
+      }
+    },
+    {
+      "name": "wrong_digest",
+      "result": {
+        "schema": "zenith.session-access-result.v1",
+        "request_handle": "request_example",
+        "request_id": "01010101010101010101010101010101",
+        "review_digest_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "provider_service": "urn:zenith:service:example-devgraph",
+        "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "state": "issued",
+        "credential_handle": "credential_example",
+        "expires_at": 2000001800,
+        "reconcile_required": false
+      }
+    },
+    {
+      "name": "wrong_expiry",
+      "result": {
+        "schema": "zenith.session-access-result.v1",
+        "request_handle": "request_example",
+        "request_id": "01010101010101010101010101010101",
+        "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+        "provider_service": "urn:zenith:service:example-devgraph",
+        "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "state": "issued",
+        "credential_handle": "credential_example",
+        "expires_at": 2000003599,
+        "reconcile_required": false
+      }
+    },
+    {
+      "name": "handle_on_unknown",
+      "result": {
+        "schema": "zenith.session-access-result.v1",
+        "request_handle": "request_example",
+        "request_id": "01010101010101010101010101010101",
+        "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+        "provider_service": "urn:zenith:service:example-devgraph",
+        "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "state": "outcome_unknown",
+        "credential_handle": "credential_example",
+        "expires_at": 2000001800,
+        "reconcile_required": true
+      }
+    },
+    {
+      "name": "handle_on_denied",
+      "result": {
+        "schema": "zenith.session-access-result.v1",
+        "request_handle": "request_example",
+        "request_id": "01010101010101010101010101010101",
+        "review_digest_sha256": "8b14b721259c8e15abcca30cd1ff59c322aa7334862095dca318e67b46738e20",
+        "provider_service": "urn:zenith:service:example-devgraph",
+        "holder_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "state": "denied",
+        "credential_handle": "credential_example",
+        "expires_at": 2000001800,
+        "reconcile_required": false
+      }
+    }
+  ]
+}
