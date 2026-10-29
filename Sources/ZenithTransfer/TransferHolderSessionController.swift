@@ -4,9 +4,18 @@ import Combine
 import SwiftUI
 import ZenithKit
 
+@MainActor protocol HolderSessionReviewRouting: AnyObject {
+  func services() async throws -> [SessionReviewService]
+  func owns(client: String, method: String, params: [String: Any]) -> Bool
+  func ownsOriginalRequest(client: String, params: [String: Any]) throws -> Bool
+  func exchange(client: String, method: String, params: Data) async throws -> Data
+  func close(client: String) async
+  func stop() async
+}
+
 /// Native member signer routing. MCP may request/show/check/call/close, never
 /// select provider files, approve, sign, change the native selection or renew.
-@MainActor final class TransferHolderSessionController: ObservableObject {
+@MainActor final class TransferHolderSessionController: ObservableObject, HolderSessionReviewRouting {
   private struct Request {
     let client: String, id: String, original: Data, model: HolderSessionReviewModel
   }
@@ -29,6 +38,12 @@ import ZenithKit
     if method == "get_result", let h = params["request_handle"] as? String { return requests[h] != nil }
     if method == "execute", let h = params["credential_handle"] as? String { return issuedHandles[h] != nil || requests.values.contains { $0.client == client && $0.model.credentialHandle == h } }
     return false
+  }
+  func ownsOriginalRequest(client: String, params: [String: Any]) throws -> Bool {
+    guard let id = params["request_id"] as? String,
+      let original = requests.values.first(where: { $0.client == client && $0.id == id }) else { return false }
+    guard try SessionReviewWire.encode(params) == original.original else { throw SessionAccessReviewError.changed }
+    return true
   }
   func exchange(client: String, method: String, params: Data) async throws -> Data {
     guard !ended.contains(client) else { throw SessionReviewBridgeError.unauthorized }

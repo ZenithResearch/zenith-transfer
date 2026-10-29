@@ -105,7 +105,125 @@ private actor SuspendedSessionOwner: SessionReviewOwner {
   }
 }
 
+@MainActor private final class FixtureHolderRouting: HolderSessionReviewRouting {
+  var exchanges = 0
+  private var originals: [String: Data] = [:]
+  func ownsOriginalRequest(client: String, params: [String: Any]) throws -> Bool {
+    guard let id = params["request_id"] as? String, let original = originals[client + ":" + id] else { return false }
+    guard try SessionReviewWire.encode(params) == original else { throw SessionAccessReviewError.changed }
+    return true
+  }
+  func services() async throws -> [SessionReviewService] { [] }
+  func owns(client: String, method: String, params: [String: Any]) -> Bool {
+    if method == "request_review" { return params["service"] as? String == "urn:example:member-service" }
+    return params["request_handle"] as? String == "member-request"
+  }
+  func exchange(client: String, method: String, params: Data) async throws -> Data {
+    exchanges += 1
+    if method == "request_review", let id = try SessionReviewWire.object(params)["request_id"] as? String {
+      originals[client + ":" + id] = params
+    }
+    return Data("{}".utf8)
+  }
+  func close(client: String) async {}
+  func stop() async {}
+}
+
 final class SessionReviewBridgeTests: XCTestCase {
+  @MainActor func testSourceChangeDuringPreparationCannotCreateAnotherRequest() async throws {
+    let root = try directory("session-source-race")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let suite = "SessionSourceRace." + UUID().uuidString, defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let owner = FixtureSessionProvider(), member = FixtureHolderRouting()
+    let controller = TransferSessionReviewController(walletModel: nil, directory: root.appendingPathComponent("journal"), defaults: defaults,
+      provider: owner, holderProvider: member, socketDirectory: root.appendingPathComponent("ipc"), presentWindows: false, clock: { sessionTestNow })
+    controller.setEnabled(true); defer { controller.stop() }
+    await owner.suspendPreparation()
+    let bytes = try request(), client = String(repeating: "ab", count: 16)
+    let pending = Task { try await controller.exchange(client: client, method: "request_review", params: bytes) }
+    try await waitFor { await owner.isPreparationSuspended() }
+    controller.approvalSource = .savedGrant
+    do {
+      _ = try await controller.exchange(client: client, method: "request_review", params: bytes)
+      XCTFail("An in-flight original request cannot be sent to another source")
+    } catch SessionReviewBridgeError.unavailable {}
+    await owner.resumePreparation()
+    let original = try await pending.value
+    let retried = try await controller.exchange(client: client, method: "request_review", params: bytes)
+    XCTAssertEqual(original, retried)
+    let counts = await owner.counts(); XCTAssertEqual(counts.0, 1); XCTAssertEqual(counts.1, 0)
+    XCTAssertEqual(member.exchanges, 0)
+  }
+  @MainActor func testOriginalRequestRetryRetainsSourceWhenSelectionChanges() async throws {
+    for originalMember in [false, true] {
+      let root = try directory("session-original-retry")
+      defer { try? FileManager.default.removeItem(at: root) }
+      let suite = "SessionOriginalRetry." + UUID().uuidString, defaults = UserDefaults(suiteName: suite)!
+      defer { defaults.removePersistentDomain(forName: suite) }
+      let owner = FixtureSessionProvider(), member = FixtureHolderRouting()
+      let controller = TransferSessionReviewController(walletModel: nil, directory: root.appendingPathComponent("journal"), defaults: defaults,
+        provider: owner, holderProvider: member, socketDirectory: root.appendingPathComponent("ipc"), presentWindows: false, clock: { sessionTestNow })
+      controller.setEnabled(true); defer { controller.stop() }
+      controller.approvalSource = originalMember ? .savedGrant : .owner
+      var input = try SessionReviewWire.object(request())
+      if originalMember { input["service"] = "urn:example:member-service" }
+      let client = String(repeating: "ab", count: 16), bytes = try SessionReviewWire.encode(input)
+      let first = try await controller.exchange(client: client, method: "request_review", params: bytes)
+      controller.approvalSource = originalMember ? .owner : .savedGrant
+      let retried = try await controller.exchange(client: client, method: "request_review", params: bytes)
+      XCTAssertEqual(first, retried)
+      input["purpose"] = "Changed bytes must not create a second request"
+      do {
+        _ = try await controller.exchange(client: client, method: "request_review", params: SessionReviewWire.encode(input))
+        XCTFail("An original request ID cannot be rebound across source changes")
+      } catch SessionAccessReviewError.changed {}
+      let counts = await owner.counts()
+      XCTAssertEqual(counts.0, originalMember ? 0 : 1); XCTAssertEqual(counts.1, 0)
+      XCTAssertEqual(member.exchanges, originalMember ? 2 : 0)
+    }
+  }
+  @MainActor func testSavedGrantSourceNeverFallsThroughToOwner() async throws {
+    for missingRegistration in [true, false] {
+      let root = try directory("session-exclusive-source")
+      defer { try? FileManager.default.removeItem(at: root) }
+      let suite = "SessionExclusiveSource." + UUID().uuidString, defaults = UserDefaults(suiteName: suite)!
+      defer { defaults.removePersistentDomain(forName: suite) }
+      // Reproduce a saved choice surviving removal of its registration.
+      defaults.set(true, forKey: "Transfer.sessionReview.savedGrantSource.v1")
+      let owner = FixtureSessionProvider(), member = FixtureHolderRouting()
+      let controller = TransferSessionReviewController(walletModel: nil, directory: root.appendingPathComponent("journal"), defaults: defaults,
+        provider: owner, holderProvider: missingRegistration ? nil : member,
+        socketDirectory: root.appendingPathComponent("ipc"), presentWindows: false, clock: { sessionTestNow })
+      controller.setEnabled(true); defer { controller.stop() }
+      XCTAssertTrue(controller.enabled)
+      XCTAssertEqual(controller.approvalSource, .savedGrant)
+      do {
+        _ = try await controller.exchange(client: String(repeating: "ab", count: 16), method: "request_review", params: request())
+        XCTFail("Missing registration or mismatched service must fail closed")
+      } catch SessionReviewBridgeError.unavailable {} // The expected rejection, before either provider prepares.
+      let counts = await owner.counts()
+      XCTAssertEqual(counts.0, 0); XCTAssertEqual(counts.1, 0)
+      XCTAssertEqual(member.exchanges, 0); XCTAssertTrue(controller.records.isEmpty)
+    }
+  }
+  @MainActor func testExistingMemberHandleKeepsItsSourceAfterSelectionChanges() async throws {
+    let root = try directory("session-original-source")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let suite = "SessionOriginalSource." + UUID().uuidString, defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let owner = FixtureSessionProvider(), member = FixtureHolderRouting()
+    let controller = TransferSessionReviewController(walletModel: nil, directory: root.appendingPathComponent("journal"), defaults: defaults,
+      provider: owner, holderProvider: member, socketDirectory: root.appendingPathComponent("ipc"), presentWindows: false, clock: { sessionTestNow })
+    controller.setEnabled(true); defer { controller.stop() }
+    controller.approvalSource = .savedGrant
+    var input = try SessionReviewWire.object(request()); input["service"] = "urn:example:member-service"
+    _ = try await controller.exchange(client: String(repeating: "ab", count: 16), method: "request_review", params: SessionReviewWire.encode(input))
+    controller.approvalSource = .owner
+    _ = try await controller.exchange(client: String(repeating: "ab", count: 16), method: "get_result", params: SessionReviewWire.encode(["request_handle": "member-request"]))
+    XCTAssertEqual(member.exchanges, 2)
+    let counts = await owner.counts(); XCTAssertEqual(counts.0, 0); XCTAssertEqual(counts.1, 0)
+  }
   func testExternalRegistrationMetadataWhenExplicitlyRequested() throws {
     let environment = ProcessInfo.processInfo.environment
     guard let path = environment["TRANSFER_SESSION_REGISTRATION_REVIEW_DIRECTORY"] else {

@@ -40,7 +40,7 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
   @Published private(set) var availableServices: [SessionReviewService] = []
   @Published private(set) var endedClients: Set<String> = []
   @Published var error: String?
-  private var holderReviews: TransferHolderSessionController?
+  private var holderReviews: (any HolderSessionReviewRouting)?
   private weak var walletModel: TransferModel?
   private let provider: any SessionReviewProvider
   private let ownerOverride: (any SessionReviewOwner)?
@@ -53,10 +53,12 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
   private var window: NSWindow?
   private var preparedOwner: String?
   private var preparing: Set<String> = []
+  private var routingPreparations: Set<String> = []
   private var knownClients: Set<String> = []
   private var lifecycle: UInt64 = 0
   init(walletModel: TransferModel?, directory: URL?, defaults: UserDefaults = .standard,
     provider: (any SessionReviewProvider)? = nil,
+    holderProvider: (any HolderSessionReviewRouting)? = nil,
     owner: (any SessionReviewOwner)? = nil,
     socketDirectory: URL = SessionReviewSocket.defaultDirectory,
     presentWindows: Bool = true,
@@ -77,7 +79,8 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
     }
     self.socketDirectory = socketDirectory; self.clock = clock; self.presentWindows = presentWindows
     journal = try? directory.map(SessionReviewJournal.init(directory:))
-    if let walletModel, let directory {
+    holderReviews = holderProvider
+    if holderReviews == nil, let walletModel, let directory {
       do { if let registration = try HolderSessionRegistration.loadIfPresent(directory: directory) {
         holderReviews = TransferHolderSessionController(wallet: walletModel, directory: directory, registration: registration, openSettings: { [weak self] in self?.showSettings() })
       } } catch { registrationFailed = true }
@@ -162,7 +165,32 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
     let raw = try SessionReviewWire.object(params)
     let epoch = lifecycle
     guard method == "close_client" || !endedClients.contains(client) else { throw SessionReviewBridgeError.unavailable }
-    if let holderReviews, (method != "request_review" || approvalSource == .savedGrant), holderReviews.owns(client: client, method: method, params: raw) {
+    let routingID = method == "request_review" ? (raw["request_id"] as? String).map { client + ":" + $0 } : nil
+    if let routingID, !routingPreparations.insert(routingID).inserted { throw SessionReviewBridgeError.unavailable }
+    defer { if let routingID { routingPreparations.remove(routingID) } }
+    var originalMemberRequest = false
+    if method == "request_review" {
+      originalMemberRequest = try holderReviews?.ownsOriginalRequest(client: client, params: raw) ?? false
+      let canonical = try SessionReviewWire.encode(raw)
+      for (handle, existing) in records where existing.clientID == client {
+        let old = try SessionReviewWire.object(existing.originalRequest)
+        if let id = raw["request_id"] as? String, old["request_id"] as? String == id {
+          guard !originalMemberRequest, existing.originalRequest == canonical else { throw SessionAccessReviewError.changed }
+          if existing.state == .awaitingHuman && !existing.dispatched { show(handle) }
+          return try publicResult(handle)
+        }
+      }
+    }
+    // A new request uses only the source chosen by the person. Missing member
+    // registration or a different service must never select owner authority.
+    let memberRequest = method == "request_review" && (originalMemberRequest || approvalSource == .savedGrant)
+    if memberRequest {
+      guard let holderReviews, holderReviews.owns(client: client, method: method, params: raw) else {
+        throw SessionReviewBridgeError.unavailable
+      }
+    }
+    // Existing handles retain their source even after the setting changes.
+    if let holderReviews, (method != "request_review" || memberRequest), holderReviews.owns(client: client, method: method, params: raw) {
       guard knownClients.contains(client) || knownClients.count < 64 else { throw SessionReviewBridgeError.unavailable }
       knownClients.insert(client)
       let reply = try await holderReviews.exchange(client: client, method: method, params: params)
@@ -195,14 +223,6 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
         ["service", "session_label", "purpose"].allSatisfy({ (raw[$0] as? String)?.isEmpty == false })
       else { throw SessionReviewBridgeError.invalid }
       let canonical = try SessionReviewWire.encode(raw)
-      for (handle, existing) in records where existing.clientID == client {
-        let old = try SessionReviewWire.object(existing.originalRequest)
-        if old["request_id"] as? String == id {
-          guard existing.originalRequest == canonical else { throw SessionAccessReviewError.changed }
-          if existing.state == .awaitingHuman && !existing.dispatched { show(handle) }
-          return try publicResult(handle)
-        }
-      }
       let correlation = client + ":" + id
       guard records.count < 64, knownClients.contains(client) || knownClients.count < 64,
         preparing.insert(correlation).inserted else { throw SessionReviewBridgeError.unavailable }

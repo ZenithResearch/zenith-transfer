@@ -15,7 +15,9 @@ signs, selects configuration/provider files, changes the native source or renews
 
 Transfer Settings → Session requests explicitly selects **Owner approval**
 (the existing default) or **Saved reusable grant** for new requests. They share
-one canonical service. Missing grants and denials never switch approval source.
+one canonical service. Missing grants, missing provider registration, unmatched
+services and denials never switch approval source; a new saved-grant request
+fails closed before the owner provider is called.
 The member signer links to this setting. Old requests keep their original source.
 
 The distinct `zenith.session-access-result.v2` unsigned MCP result allows a null
