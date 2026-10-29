@@ -106,6 +106,14 @@ private actor SuspendedSessionOwner: SessionReviewOwner {
 }
 
 final class SessionReviewBridgeTests: XCTestCase {
+  func testExternalRegistrationMetadataWhenExplicitlyRequested() throws {
+    guard let path = ProcessInfo.processInfo.environment["TRANSFER_SESSION_REGISTRATION_REVIEW_DIRECTORY"] else {
+      throw XCTSkip("Explicit owner-private provider review directory required")
+    }
+    // Validation constructs an inert actor only. Do NOT call services here:
+    // no provider/store/listener, issuer-key access or grant is started.
+    XCTAssertNotNil(try SessionProviderRegistration.loadIfPresent(directory:URL(fileURLWithPath:path)))
+  }
   func testPinnedInventoryRejectsOversizedFileAndAggregateWithoutLaunching() throws {
     let root = try directory("session-inventory-budget")
     defer { try? FileManager.default.removeItem(at:root) }
