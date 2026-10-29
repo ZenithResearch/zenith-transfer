@@ -4,12 +4,13 @@ import Darwin
 import Foundation
 
 public enum PublicationFailure: LocalizedError {
-  case unavailable, invalid, changed
+  case unavailable, invalid, changed, localSourceRequired
   public var errorDescription: String? {
     switch self {
     case .unavailable: return "Tailscale status could not be read. Open Tailscale on this Mac and refresh."
     case .invalid: return "These publishing settings are not supported. Keep the selected service and choose valid HTTPS ports."
     case .changed: return "The service or Tailscale configuration changed. Refresh and review again."
+    case .localSourceRequired: return "This is a registered network address. To review an additional address, select the local Wallet API under Servers & access points."
     }
   }
 }
@@ -87,16 +88,21 @@ public struct ServicePublicationReview: Codable, Sendable, Equatable {
     case tailnetURL = "tailnet_url", funnelURL = "funnel_url", authorityChanged = "authority_changed"
   }
 
+  public static func canPrepare(from service: LocalService) -> Bool {
+    guard let endpoint = URL(string: service.endpoint), ["http","https"].contains(endpoint.scheme ?? ""),
+      endpoint.host == "127.0.0.1", endpoint.port != nil,
+      endpoint.user == nil, endpoint.password == nil, endpoint.query == nil, endpoint.fragment == nil,
+      endpoint.path.isEmpty else { return false }
+    return true
+  }
+
   public static func prepare(service: LocalService, snapshot: PublicationSnapshot,
     tailnet: Bool, privatePort: Int, funnel: Bool, publicPort: Int) throws -> Self {
+    guard canPrepare(from:service) else { throw PublicationFailure.localSourceRequired }
     guard tailnet || funnel,
       (!tailnet || (1024...65535).contains(privatePort)),
       (!funnel || [443,8443,10000].contains(publicPort)),
-      !(tailnet && funnel && privatePort == publicPort),
-      let endpoint = URL(string: service.endpoint), ["http","https"].contains(endpoint.scheme ?? ""),
-      endpoint.host == "127.0.0.1", endpoint.port != nil,
-      endpoint.user == nil, endpoint.password == nil, endpoint.query == nil, endpoint.fragment == nil,
-      endpoint.path.isEmpty
+      !(tailnet && funnel && privatePort == publicPort)
     else { throw PublicationFailure.invalid }
     var blockers: [String] = []
     if !snapshot.running { blockers.append("Tailscale is not connected on this Mac.") }

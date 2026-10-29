@@ -57,6 +57,15 @@ final class ServicePublicationTests:XCTestCase {
     XCTAssertThrowsError(try ServicePublicationReview.prepare(service:service(),snapshot:snapshot(),tailnet:true,privatePort:65536,funnel:false,publicPort:443))
     XCTAssertThrowsError(try ServicePublicationReview.prepare(service:service(),snapshot:snapshot(),tailnet:false,privatePort:10444,funnel:true,publicPort:9443))
   }
+  func testRegisteredTailnetAddressIsNotOfferedAsAPublishingSource() throws {
+    let local = try service()
+    let published = LocalService(instance_id:local.id,resource_id:local.resource_id,interface:local.interface,name:local.name,endpoint:"https://host.example.ts.net:9443",connection:local.connection,updated_at:1)
+    XCTAssertFalse(ServicePublicationReview.canPrepare(from:published))
+    XCTAssertTrue(ServicePublicationReview.canPrepare(from:try service()))
+    XCTAssertThrowsError(try ServicePublicationReview.prepare(service:published,snapshot:snapshot(),tailnet:true,privatePort:10444,funnel:false,publicPort:443)) { error in
+      guard case PublicationFailure.localSourceRequired = error else { return XCTFail("A valid port must not be blamed for a nonlocal source") }
+    }
+  }
   func testPrivateAPIIsNeverImplicitlyPublicSafe() throws {
     let r=try ServicePublicationReview.prepare(service:service(privateAPI:true),snapshot:snapshot(),tailnet:true,privatePort:10444,funnel:true,publicPort:443)
     XCTAssertTrue(r.blockers.contains(where:{$0.contains("private API")}))

@@ -28,6 +28,12 @@ same HTTPS Wallet request/access journey. Network connectivity is not authority.
 The public DevGraph endpoint is not currently configured. Current Transfer
 Sharing & network exports are proposals only; they cannot activate any route.
 
+The current proposal UI is available only for a selected loopback source. For an
+already registered LAN/Tailnet/public address, show that exact address and guide
+the owner to the local Wallet API to review an additional address. Do not offer a
+new-port form for a network address, silently substitute another service, or
+suggest that another publishing setup is required to use an existing Wallet grant.
+
 ## Shared contract prerequisites
 
 DevGraph owns the canonical service-control wire schema, state and enforcement.
