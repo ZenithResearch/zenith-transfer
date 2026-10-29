@@ -71,7 +71,7 @@ struct TransferPresetEditor: View {
   @State private var detail = ""
   @State private var reads = Set(CredentialPresetRevision.allReads)
   @State private var writes: Set<String> = []
-  @State private var arenaRead = false
+  @State private var arenaRead: Bool
   @State private var linkSeat = false
   @State private var seatClass = PresetSeatAssociation.sharedSeatClassIRI
   @State private var seatType = ""
@@ -81,6 +81,13 @@ struct TransferPresetEditor: View {
   @State private var review: CredentialPresetRevision?
   @State private var newID = "custom-" + UUID().uuidString.lowercased()
   @Environment(\.dismiss) private var dismiss
+  init(library: TransferPresetLibrary, source: CredentialPresetRevision?, duplicate: Bool) {
+    self.library = library; self.source = source; self.duplicate = duplicate
+    _arenaRead = State(initialValue: Self.initialArenaRead(source: source))
+  }
+  static func initialArenaRead(source: CredentialPresetRevision?) -> Bool {
+    source.map { $0.arenaRead == true } ?? true
+  }
   var body: some View {
     VStack(spacing: 0) {
       HStack { Text(source == nil || duplicate ? "Create credential preset" : "New preset revision").font(.title2.bold()); Spacer(); Button("Cancel") { dismiss() } }.padding(20)

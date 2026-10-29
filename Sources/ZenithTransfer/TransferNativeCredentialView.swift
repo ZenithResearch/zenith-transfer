@@ -95,11 +95,11 @@ import ZenithKit
     guard !busy, state == .idle, let inbox else { return }
     existingConfiguration = nil
     selected = item; review = nil; presetID = "custom"; presetReference = nil; recipeNotice = nil
-    choice = NativeGrantChoice(); exactIDText = [:]; futureArenaMode = false; arenaReadEnabled = false; scopeMode = "choose"; expanded = []
+    choice = NativeGrantChoice(); exactIDText = [:]; futureArenaMode = false; arenaReadEnabled = defaultsToArenaRead; scopeMode = "choose"; expanded = []
     choice.kinds = Set(inbox.permissions.kinds).intersection(["Initiative", "Project", "Issue", "Task", "Todo", "Proposal"])
     choice.untilRevoked = inbox.permissions.validity.notAfter == nil
     if let end = inbox.permissions.validity.notAfter { choice.expiry = Date(timeIntervalSince1970: Double(end)) }
-    ruleDrafts = [RuleDraft(choice: choice)]; ruleIndex = 0
+    ruleDrafts = []; ruleIndex = 0
     hierarchy = NativeHierarchyPermissions(); hierarchyError = nil; hierarchyMode = false
     requestedConfiguration = nil; requestConfigurationError = nil
     do {
@@ -109,15 +109,19 @@ import ZenithKit
         hierarchyMode = false
         if let preset = requested.preset {
           choice.reads = Set(preset.read_operations); choice.writes = Set(preset.write_operations)
+          // A requested preset fixes its action set; the new-draft default must
+          // not append Arena reads that the requester did not ask for.
+          arenaReadEnabled = false
           presetID = "server:" + preset.id; presetReference = requested.reference
         }
         if let paths = requested.paths { choice.paths = paths; scopeMode = "paths" }
-        ruleDrafts = [RuleDraft(choice: choice, scopeMode: scopeMode)]
       }
     } catch {
       hierarchyMode = false
       requestConfigurationError = (error as? NativeRequestedConfigurationError)?.errorDescription ?? NativeRequestedConfigurationError.unsupported.errorDescription
     }
+    updateArenaCoverage()
+    ruleDrafts = [RuleDraft(choice: choice, scopeMode: scopeMode, arenaReadEnabled: arenaReadEnabled)]
     declineReason = ""
     status = "Choose the permissions and resources for this credential. No access has been granted."
   }
@@ -213,7 +217,10 @@ import ZenithKit
       if let paths = requested.paths { next.paths = paths }
     }
     next.untilRevoked = current.untilRevoked; next.expiry = current.expiry
-    ruleDrafts.append(RuleDraft(choice: next, scopeMode: requestedConfiguration?.locksScope == true ? "paths" : "choose")); selectRule(ruleDrafts.count - 1)
+    let arenaRead = defaultsToArenaRead && requestedConfiguration?.locksPermissions != true
+    if arenaRead { next.arenaIDs = NativeGrantSelection.arenaCoverage(next, available: inbox?.permissions.arenaIDs ?? []) }
+    ruleDrafts.append(RuleDraft(choice: next, scopeMode: requestedConfiguration?.locksScope == true ? "paths" : "choose",
+      arenaReadEnabled: arenaRead)); selectRule(ruleDrafts.count - 1)
   }
   func removeRule() {
     guard ruleDrafts.count > 1 else { return }
@@ -293,6 +300,10 @@ import ZenithKit
   var coveredArenaIDs: Set<String> {
     NativeGrantSelection.arenaCoverage(choice, available: inbox?.permissions.arenaIDs ?? [])
   }
+  private var defaultsToArenaRead: Bool {
+    guard let inbox, inbox.activation["read"] as? Bool != false else { return false }
+    return inbox.permissions.allArenas || !inbox.permissions.arenaIDs.isEmpty
+  }
   var canReadFutureArenas: Bool { inbox?.permissions.allArenas == true && inbox?.activation["future_arena_reads"] as? Bool == true }
   func setFutureArenaMode(_ enabled: Bool) {
     guard !enabled || canReadFutureArenas && choice.wholeGraph else { return }
@@ -317,7 +328,7 @@ import ZenithKit
     guard requestedConfiguration?.paths?.contains(path) == true else { return }
     if enabled { if !choice.paths.contains(path) { choice.paths.append(path) } }
     else { choice.paths.removeAll { $0 == path } }
-    editedPermissions()
+    updateArenaCoverage(); editedPermissions()
   }
   func inherited(_ row: WorkScopeOption) -> Bool { choice.paths.contains { $0 != row.resource_path && WorkScopeSelection.covers($0, row.resource_path) } }
   func reviewSelection() {
