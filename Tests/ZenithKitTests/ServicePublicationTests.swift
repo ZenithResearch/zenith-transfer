@@ -61,6 +61,15 @@ final class ServicePublicationTests:XCTestCase {
     let r=try ServicePublicationReview.prepare(service:service(privateAPI:true),snapshot:snapshot(),tailnet:true,privatePort:10444,funnel:true,publicPort:443)
     XCTAssertTrue(r.blockers.contains(where:{$0.contains("private API")}))
   }
+  func testGraphicalAppAlwaysInvokesTailscaleInCLIMode() {
+    let inherited = ["HOME":"/fixture/user", "PATH":"/usr/bin:/bin", "TAILSCALE_BE_CLI":"0"]
+    let command = TailscalePublicationInspector.commandEnvironment(inherited)
+    XCTAssertEqual(command["TAILSCALE_BE_CLI"], "1")
+    XCTAssertEqual(command["HOME"], inherited["HOME"])
+    XCTAssertEqual(command["PATH"], inherited["PATH"])
+    XCTAssertNil(command["TERM"], "CLI mode must not require a simulated terminal")
+    XCTAssertEqual(inherited["TAILSCALE_BE_CLI"], "0", "Only the child environment changes")
+  }
   func testInstalledReadOnlyInspectionWhenRequested() async throws {
     guard ProcessInfo.processInfo.environment["TRANSFER_TAILSCALE_INSPECT"] == "1" else {
       throw XCTSkip("No installed Tailscale inspection requested")

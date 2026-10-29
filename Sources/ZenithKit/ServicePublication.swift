@@ -124,6 +124,13 @@ public struct ServicePublicationReview: Codable, Sendable, Equatable {
 
 /// Closed read-only CLI adapter. No shell, login, reset, Serve or Funnel mutation.
 public enum TailscalePublicationInspector {
+  static func commandEnvironment(_ inherited: [String: String]) -> [String: String] {
+    var environment = inherited
+    // The macOS executable is also a GUI app. A graphical parent has no
+    // terminal hints, so request the vendor's CLI mode explicitly.
+    environment["TAILSCALE_BE_CLI"] = "1"
+    return environment
+  }
   public static func inspect() async throws -> PublicationSnapshot {
     try await Task.detached {
       let status = try read(["status","--json"], maximum: 1_048_576)
@@ -141,6 +148,7 @@ public enum TailscalePublicationInspector {
     guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions:0o600]) else { throw PublicationFailure.unavailable }
     let output = try FileHandle(forWritingTo: file); defer { try? output.close() }
     let process = Process(); process.executableURL = executable; process.arguments = arguments
+    process.environment = commandEnvironment(ProcessInfo.processInfo.environment)
     process.standardInput = FileHandle.nullDevice; process.standardOutput = output; process.standardError = FileHandle.nullDevice
     try process.run()
     let deadline = ProcessInfo.processInfo.systemUptime + 10
