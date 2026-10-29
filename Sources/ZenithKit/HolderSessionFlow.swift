@@ -163,7 +163,7 @@ actor HolderSessionFlow {
     }
   }
   func checkOriginalResult() async throws {
-    guard !busy, [.dispatched, .outcomeUnknown].contains(phase), let challenge else { throw HolderSessionError.changed }
+    guard !busy, [.dispatched, .outcomeUnknown, .issued].contains(phase), let challenge else { throw HolderSessionError.changed }
     busy = true; let ticket = epoch; defer { busy = false }
     guard clock() < challenge.expiresAt else { try transition(.expired, dispatched: true); throw HolderSessionError.expired }
     let proof = try await custody.status(challenge, now: clock())
@@ -204,13 +204,15 @@ actor HolderSessionFlow {
     switch result {
     case .issued(let data):
       let token = try HolderSessionCredential.decode(data, challenge: challenge, now: clock())
+      if let original = credential, original.digest != token.digest { throw HolderSessionError.changed }
       try await custody.install(token, now: clock()); try current(ticket)
       guard clock() < challenge.expiresAt else { try transition(.expired, dispatched: true); throw HolderSessionError.expired }
       let handle = record?.credentialHandle ?? UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
       try transition(.issued, dispatched: true, credentialHandle: handle); credential = token
     case .unknown: try transition(.outcomeUnknown, dispatched: true)
     case .denied: try transition(.denied, dispatched: true)
-    case .revoked: try transition(.revoked, dispatched: true)
+    case .revoked:
+      try transition(.revoked, dispatched: true); credential = nil; await custody.stop()
     case .expired: try transition(.expired, dispatched: true)
     }
   }

@@ -1,6 +1,6 @@
 # Native holder sessions
 
-Source candidate only. `HolderSessionIntegration.qualified` is false. No new
+Disabled foundation candidate. `HolderSessionIntegration.qualified` is false. No new
 provider is registered or advertised. The source dependency and local Core
 artifact now use `6d8bf278`; the installed app, original owner-bootstrap MCP
 flow and existing grants remain unchanged.
@@ -69,10 +69,19 @@ temporary-key possession, then installs a synthetic issuer token. After locking
 the root Wallet, the real helper produces two fresh call proofs and a status
 proof. This verifies native consumer interoperability, not the HTTP receiver.
 
-Before enabling the feature: qualify the concrete frozen DevGraph broker
-adapter and receiver; connect the native review
-UI/MCP client lifecycle; then run the actual full approval-to-read flow. No
-public capability or installed update is inferred from these unit tests.
+The opt-in receiver integration tests run an actual disposable DevGraph issuer
+and memory graph over the pinned private NDJSON process. A random Core Wallet
+saves that issuer's synthetic v2 parent. The actual Core/helper flow recovers a
+deliberately lost committed exchange result, reads only the allowed Task twice
+after root locking, rejects an original-proof replay, rechecks original status
+without changing expiry, and detects current parent revocation. A separate
+short-lived exchange proves actual receiver and client rejection at fixed expiry.
+No personal Wallet, installed profile or production graph is used.
+
+Before enabling the feature: connect the native review UI/MCP client lifecycle,
+qualify its request routing/expiry-edit/restart behavior and the eventual iOS
+native custody port, and review the actual installed configuration. No public
+capability or installed update is inferred from the source foundation tests.
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
@@ -83,3 +92,11 @@ Set `HOLDER_SESSION_AGENT_TEST_BINARY` to an explicitly reviewed native helper
 to run the opt-in process check. Core's private-file reader rejects symlink
 ancestors and allow ACLs: use a protected physical path, including `/private/tmp`
 rather than `/tmp`, for disposable profiles. No personal Wallet is used.
+
+The actual receiver tests additionally require explicit paths through
+`HOLDER_SESSION_DG_TEST_PYTHON`, `HOLDER_SESSION_DG_TEST_FIXTURE`,
+`HOLDER_SESSION_DG_TEST_AUTHORITY` and `HOLDER_SESSION_DG_TEST_READ_AUTHORITY`.
+They use the backend's test-only `tests/native_read/holder_session_fixture.py`,
+with its exact source closure pinned at process launch. The fixture preprovisions
+a synthetic read grant for the random test Wallet's public key. Its `REVOKE`
+sentinel is test-only; neither production broker gains a revocation/debug tool.
