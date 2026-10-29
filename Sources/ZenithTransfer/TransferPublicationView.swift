@@ -32,27 +32,40 @@ struct TransferPublicationView: View {
           if let snapshot {
             Label(snapshot.running ? "Tailscale connected" : "Tailscale not connected",systemImage:snapshot.running ? "checkmark.shield" : "network.slash")
             Text(snapshot.dnsName).font(.caption.monospaced()).textSelection(.enabled)
-            GroupBox("Private Tailnet access") {
-              VStack(alignment:.leading,spacing:8) {
-                Toggle("Make available to permitted Tailnet devices",isOn:$tailnet)
-                Text("Uses Tailscale Serve. Your network’s access rules and the service’s own credential checks both apply.").font(.callout).foregroundStyle(.secondary)
-                if tailnet { TextField("Private HTTPS port",text:$privatePort).frame(maxWidth:220) }
-              }.frame(maxWidth:.infinity,alignment:.leading).padding(6)
+            if ServicePublicationReview.canPrepare(from:service) {
+              Text("Review an additional address").font(.headline)
+              Text("These are draft publishing choices for the selected local service. They do not describe or edit an existing address.").font(.callout).foregroundStyle(.secondary)
+              GroupBox("Private Tailnet access") {
+                VStack(alignment:.leading,spacing:8) {
+                  Toggle("Make available to permitted Tailnet devices",isOn:$tailnet)
+                  Text("Uses Tailscale Serve. Your network’s access rules and the service’s own credential checks both apply.").font(.callout).foregroundStyle(.secondary)
+                  if tailnet { TextField("Private HTTPS port",text:$privatePort).frame(maxWidth:220) }
+                }.frame(maxWidth:.infinity,alignment:.leading).padding(6)
+              }
+              GroupBox("Public internet access") {
+                VStack(alignment:.leading,spacing:8) {
+                  Toggle("Publish through Tailscale Funnel",isOn:$funnel)
+                  Text("Anyone can reach this HTTPS address without Tailscale. Publication does not issue credentials or make protected work public.").font(.callout).foregroundStyle(.secondary)
+                  if funnel {
+                    Picker("Public HTTPS port",selection:$publicPort) { ForEach([443,8443,10000],id:\.self) { Text(String($0)).tag($0) } }.frame(maxWidth:280)
+                    Text("A public listener is also reachable from the Tailnet. Choose a separate private port when you want both addresses.").font(.caption).foregroundStyle(.secondary)
+                  }
+                }.frame(maxWidth:.infinity,alignment:.leading).padding(6)
+              }
+              Text("Existing HTTPS ports: " + snapshot.occupiedPorts.sorted().map(String.init).joined(separator:", ")).font(.caption)
+              Text("Funnel changes visibility for an entire port. Transfer will not overwrite existing listeners or publish their other paths.").font(.callout).foregroundStyle(.secondary)
+              Button("Review publishing setup") { prepare(snapshot) }
+                .buttonStyle(TransferPrimaryButtonStyle()).disabled(!tailnet && !funnel)
+            } else {
+              GroupBox("Registered network address") {
+                VStack(alignment:.leading,spacing:10) {
+                  Text(service.endpoint).font(.callout.monospaced()).textSelection(.enabled)
+                  Text("This address is already registered for DevGraph. You do not need another publishing setup to use it with Wallet.")
+                  Text("To review an additional address, close this panel and choose Sharing & network for the local Wallet API under Servers & access points.").font(.callout).foregroundStyle(.secondary)
+                  Text("Network reachability and Wallet permission checks are separate. This panel does not issue credentials or change access.").font(.callout).foregroundStyle(.secondary)
+                }.frame(maxWidth:.infinity,alignment:.leading).padding(6)
+              }
             }
-            GroupBox("Public internet access") {
-              VStack(alignment:.leading,spacing:8) {
-                Toggle("Publish through Tailscale Funnel",isOn:$funnel)
-                Text("Anyone can reach this HTTPS address without Tailscale. Publication does not issue credentials or make protected work public.").font(.callout).foregroundStyle(.secondary)
-                if funnel {
-                  Picker("Public HTTPS port",selection:$publicPort) { ForEach([443,8443,10000],id:\.self) { Text(String($0)).tag($0) } }.frame(maxWidth:280)
-                  Text("A public listener is also reachable from the Tailnet. Choose a separate private port when you want both addresses.").font(.caption).foregroundStyle(.secondary)
-                }
-              }.frame(maxWidth:.infinity,alignment:.leading).padding(6)
-            }
-            Text("Existing HTTPS ports: " + snapshot.occupiedPorts.sorted().map(String.init).joined(separator:", ")).font(.caption)
-            Text("Funnel changes visibility for an entire port. Transfer will not overwrite existing listeners or publish their other paths.").font(.callout).foregroundStyle(.secondary)
-            Button("Review publishing setup") { prepare(snapshot) }
-              .buttonStyle(TransferPrimaryButtonStyle()).disabled(!tailnet && !funnel)
           } else if loading { ProgressView("Reading Tailscale configuration…") }
           else { Text("Open Tailscale on this Mac, then refresh. This screen does not sign in or change network settings.") }
           if let error { Text(error).foregroundStyle(.red) }
@@ -93,7 +106,8 @@ struct TransferPublicationView: View {
       guard let port=tailnet ? Int(privatePort) : 0 else { throw PublicationFailure.invalid }
       review=try ServicePublicationReview.prepare(service:service,snapshot:snapshot,tailnet:tailnet,privatePort:port,funnel:funnel,publicPort:publicPort)
       error=nil;exported=false
-    } catch { self.error=PublicationFailure.invalid.localizedDescription }
+    } catch let failure as PublicationFailure { self.error=failure.localizedDescription }
+    catch { self.error=PublicationFailure.invalid.localizedDescription }
   }
   private func export(_ review:ServicePublicationReview) {
     let panel=NSSavePanel();panel.nameFieldStringValue="Service-publishing-review.json";panel.allowedContentTypes=[.json]

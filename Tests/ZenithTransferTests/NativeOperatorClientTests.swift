@@ -39,7 +39,7 @@ final class NativeOperatorClientTests: XCTestCase {
   }
   private func challenge(_ input: [String: Any], tamper: Bool = false) -> [String: Any] {
     let action = input["action"] as! [String: Any], name = action["action"] as! String, now = Int(Date().timeIntervalSince1970)
-    return ["schema": "castalia.access-request-challenge.v1", "challenge_id": UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased(), "nonce": String(repeating: "A", count: 43), "issuer": "fixture", "receiver": "https://fixture.example", "subject_public_key": input["subject_public_key"]!, "installation_id": input["installation_id"]!, "operation": tamper ? "access.status" : (["inbox":"access.inbox", "review":"access.review", "approve":"access.decide", "status":"access.status"][name] ?? "access.decide"), "issued_at": now, "expires_at": now + 120, "details": ["action": action, "policy_revision": 1, "policy_digest_sha256": String(repeating: "b", count: 64)]]
+    return ["schema": "castalia.access-request-challenge.v1", "challenge_id": UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased(), "nonce": String(repeating: "A", count: 43), "issuer": "fixture", "receiver": "https://fixture.example", "subject_public_key": input["subject_public_key"]!, "installation_id": input["installation_id"]!, "operation": tamper ? "access.status" : (["inbox":"access.inbox", "review":"access.review", "approve":"access.decide", "status":"access.status", "arena_policy_status":"access.status", "arena_create_status":"access.status"][name] ?? "access.decide"), "issued_at": now, "expires_at": now + 120, "details": ["action": action, "policy_revision": 1, "policy_digest_sha256": String(repeating: "b", count: 64)]]
   }
   @MainActor private func consent(_ client: NativeOperatorClient, operation: String) async throws -> [String: Any] {
     let task = Task { try await client.confirm() }
@@ -83,6 +83,68 @@ final class NativeOperatorClientTests: XCTestCase {
     XCTAssertNil(try bridge.retainedNativeAction()); XCTAssertNil(bridge.consent)
     let untrusted = NativeOperatorServerError(status: 400, code: "private arbitrary server text")
     XCTAssertFalse(untrusted.errorDescription!.contains("private arbitrary server text"))
+  }
+  @MainActor func testMissingReadOnlyResultsEndRecoveryWithoutReplayingAnyAction() async throws {
+    for name in ["inbox", "review"] {
+      try await exerciseMissingResult(name: name, accepted: true)
+    }
+  }
+  @MainActor func testMissingMutationResultsAndMismatchedReadOnlyStatusRetainOriginalJournal() async throws {
+    for name in ["approve", "deny", "revoke", "upgrade_arena_policy", "create_arena"] {
+      try await exerciseMissingResult(name: name, accepted: false)
+    }
+    for change in ["original_id", "status_id", "authority", "result", "extra", "schema"] {
+      try await exerciseMissingResult(name: "review", accepted: false, change: change)
+    }
+  }
+  @MainActor private func exerciseMissingResult(name: String, accepted: Bool, change: String = "") async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let (repo, resource, _) = try await fixture(root), directory = root.appendingPathComponent("actions")
+    let journal = try OperatorJournal(directory: directory, origin: resource.id)
+    let original: [String: Any] = ["schema":"devgraph.operator-pending.v1", "origin":resource.id,
+      "identity":try GrantJSON.object(await repo.graphAccessIdentityV2()),
+      "action":["schema":name == "upgrade_arena_policy" ? "devgraph.access-operator-action.v10" : name == "create_arena" ? "devgraph.access-operator-action.v11" : name == "review" ? "devgraph.access-operator-action.v13" : "devgraph.access-operator-action.v1", "action":name, "action_id":String(repeating:"a", count:32)],
+      "assignment_digest":NSNull(), "dispatched":true]
+    try journal.save(GrantJSON.data(original))
+    let retained = try XCTUnwrap(journal.load())
+    var executed: [String] = []
+    let bridge = TransferOperatorBridge(resource:resource, repository:repo, journalDirectory:directory, rpcExchange: { operation, bytes in
+      let input = try GrantJSON.object(bytes)
+      if operation == "challenge" { return PrivateHTTPResponse(status:200, data:try GrantJSON.data(self.challenge(input))) }
+      let action = ((input["challenge"] as! [String:Any])["details"] as! [String:Any])["action"] as! [String:Any]
+      executed.append(action["action"] as! String)
+      var response: [String:Any] = ["schema":"devgraph.access-operator-result.v1", "action_id":action["action_id"]!,
+        "original_action_id":action["original_action_id"]!, "status":"unknown", "result":NSNull(), "authority_issued":false]
+      switch change {
+      case "original_id": response["original_action_id"] = String(repeating:"b", count:32)
+      case "status_id": response["action_id"] = String(repeating:"b", count:32)
+      case "authority": response["authority_issued"] = true
+      case "result": response["result"] = ["status":"active"]
+      case "extra": response["activation"] = ["active":true]
+      case "schema": response["schema"] = "unknown"
+      default: break
+      }
+      return PrivateHTTPResponse(status:200, data:try GrantJSON.data(response))
+    })
+    defer { bridge.cancel() }
+    let client = try NativeOperatorClient(bridge:bridge)
+    XCTAssertEqual(client.state,.unknown)
+    do { try await client.prepare(["action":"inbox"]); XCTFail("Status must be checked first") } catch {}
+    try await client.prepareRecovery()
+    do {
+      let result = try await consent(client, operation:"access.status")
+      XCTAssertTrue(accepted); XCTAssertEqual(result["status"] as? String,"unknown")
+    } catch { XCTAssertFalse(accepted, "Read-only missing result should finish recovery: \(error)") }
+    let statusAction = name == "upgrade_arena_policy" ? "arena_policy_status" : name == "create_arena" ? "arena_create_status" : "status"
+    XCTAssertEqual(executed,[statusAction], "Recovery must never replay the original action")
+    XCTAssertEqual(client.state,accepted ? .idle : .unknown)
+    if accepted {
+      XCTAssertNil(try journal.load())
+      try await client.prepare(["action":"inbox"])
+      XCTAssertEqual(executed,["status"], "An explicit new preparation still requires fresh consent")
+      try await client.cancelPrepared()
+    } else { XCTAssertEqual(try journal.load(),retained) }
   }
   @MainActor func testJournalWriteFailureBeforeDispatchRetainsExactPreparedAction() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -264,8 +264,19 @@ struct NativeOperatorInbox {
     if let recoveryAction {
       guard let originalAction = original?["action"] as? [String: Any],
         GrantJSON.equal(response["original_action_id"], originalAction["action_id"]),
-        response["status"] as? String == "reconciled", let nested = response["result"] as? [String: Any],
-        envelope(nested, originalAction), GrantJSON.equal(recoveryAction, pending) else { throw NativeGrantError.recovery }
+        GrantJSON.equal(recoveryAction, pending) else { throw NativeGrantError.recovery }
+      // A missing read-only result cannot hide a grant mutation. End only that
+      // preview after an authenticated, exact status check; the user must start
+      // another review explicitly. Mutating actions always retain recovery.
+      if pending["schema"] as? String == "devgraph.access-operator-action.v1",
+        pending["action"] as? String == "status",
+        ["inbox", "review"].contains(originalAction["action"] as? String ?? ""),
+        Set(response.keys) == ["schema", "action_id", "original_action_id", "status", "result", "authority_issued"],
+        response["status"] as? String == "unknown", response["result"] is NSNull {
+        return response
+      }
+      guard response["status"] as? String == "reconciled", let nested = response["result"] as? [String: Any],
+        envelope(nested, originalAction) else { throw NativeGrantError.recovery }
       result = nested; action = originalAction
     }
     let name = action["action"] as? String ?? ""

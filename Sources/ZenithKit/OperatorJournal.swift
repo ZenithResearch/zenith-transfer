@@ -66,7 +66,8 @@ public final class OperatorJournal {
     try data.write(to: file, options: .atomic)
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
   }
-  /// The caller must validate the original result or cancel an unsigned action.
+  /// The caller must validate the original result, an exact missing-result
+  /// status for a read-only action, or cancellation of an unsigned action.
   public func clear(matching expected: Data) throws {
     try coordinated {
       guard let saved = try load(), saved == expected else { throw WalletFailure.conflict }
