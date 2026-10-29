@@ -1,102 +1,80 @@
 # Native holder sessions
 
-Disabled foundation candidate. `HolderSessionIntegration.qualified` is false. No new
-provider is registered or advertised. The source dependency and local Core
-artifact now use `6d8bf278`; the installed app, original owner-bootstrap MCP
-flow and existing grants remain unchanged.
+The native consumer is qualified against Wallet Core `72ed5cd` and its additive
+opaque custody ABI. Transfer and iOS use the same typed challenge, native review,
+finite credential and session lifecycle. Existing v1/v2 grants, encrypted Wallets,
+backups, owner inbox and Configure grant behavior remain unchanged.
 
-## Boundaries
+## Human approval and application access
 
-Wallet Core retains the reusable v2 parent grant and long-term holder key.
-`WalletSession` has additive typed parent-reference, private preparation, review
-and approval APIs. `WalletRepository` checks its lifecycle ticket around these
-operations and rejects them before probing an unqualified installed Core.
+MCP opens a native signer with proposed permissions and a duration. The human
+unlocks Wallet, selects the offered permissions, adjusts duration within the
+provider/parent limits, and approves the exact challenge. Each scope or expiry
+edit creates a fresh request, temporary key and challenge. No MCP tool approves,
+signs, selects configuration/provider files, changes the native source or renews.
 
-Transfer owns a separate `castalia-holder-session-agent` process and its
-temporary key. Its launch paths/profile hashes come from trusted application
-configuration, never MCP arguments. The closed native protocol has no generic
-sign operation, key import/export or owner command. Process loss is terminal;
-the adapter never restarts under an existing session handle.
+Transfer Settings → Session requests explicitly selects **Owner approval**
+(the existing default) or **Saved reusable grant** for new requests. They share
+one canonical service. Missing grants and denials never switch approval source.
+The member signer links to this setting. Old requests keep their original source.
 
-The private issuer adapter owns receiver routing. It receives Core's private
-prepare/authorization payloads, and the helper's finite presentations/status
-proofs. It owns no temporary private key. The canonical service/pin and trusted
-caller origin/audience remain distinct from LAN, loopback or Tailscale routes.
-The receiver must check current parent authority, scope, policy and replay state
-on each call. An issuer signature alone does not prove current authorization.
+The distinct `zenith.session-access-result.v2` unsigned MCP result allows a null
+review digest and session public key while the human is unlocking/preparing.
+It never invents a key. An issued result has a verified review digest, public
+session key, fixed expiry and opaque client-bound credential handle. The old
+owner flow keeps its v1 result. A running MCP process must reload the updated
+packaged script to consume the new result; changing its configured path alone
+does not restart it.
 
-`HolderSessionFlow` scopes one request to one authenticated local client. The
-native UI must explicitly prepare and approve the exact reviewed digest/expiry.
-It writes a root-free CAS/fsync dispatch record before sending authorization.
-A lost exchange result is recovered with the original temporary key; it cannot
-silently sign again, issue again or extend expiry. Calls and status after
-issuance do not consult the root Wallet. Closing destroys local custody without
-claiming server-side revocation.
+## Custody and transport
 
-## Public versus private data
+The reusable parent and long-term key stay in Wallet. Transfer uses a separate
+pinned `castalia-holder-session-agent` process. iOS uses a separate opaque native
+Core custody handle in the application process; this is an API/key-ownership
+boundary, not an additional OS process-isolation claim. Neither path exports
+private key material or accepts key import, arbitrary signing or onward delegation.
 
-`HolderSessionPrivatePayload` has no public bytes accessor, Codable conformance
-or reflective/debug contents. Only an in-module trusted issuer adapter can use
-it. Neither it nor consent tokens enter application journals or model results.
-The separate journal stores public challenge bytes and correlation/state only;
-it is application audit data, not a Wallet backup or recoverable key store.
+Transfer member management uses the explicitly configured local broker, with
+`app://zenith-transfer` context. Its separate protected descriptor is
+`SessionReviews/holder-session-provider.json`, schema
+`zenith.holder-session-provider-registration.v1`. It pins provider/context,
+interpreter/script/profile/source bytes and agent binary/profile; its presence
+does not override the human's selected approval source. Existing `provider.json`
+remains the owner-bootstrap registration. Registration files are excluded from
+the old request journal reader.
 
-The app/MCP layer may expose only an opaque client-bound handle, fixed expiry,
-public review/status and business results. It must not return reusable grants,
-finite tokens, proofs, signatures, raw issuer payloads or helper handles.
+iOS uses its saved HTTPS connection and its existing LAN/Tailscale transport.
+Session capability metadata must match the saved issuer/key and canonical service,
+fixed protocol versions, bounded lifetime and exact route prefix. Session calls
+use `Origin: app://zenith-ios`. Access points affect transport, not issuer identity.
+The optional advertised `holder_grants.v2_endpoint` enables an explicit fresh
+ordinary enrollment and human review/save of a v2 parent, without changing the
+operator-approved assignment. Existing v1 paths and original uncertain issuance
+requests retain their original endpoint and signed bytes.
 
-The new contract uses RFC 8785 UTF-16 key ordering. Its encoder is separate from
-the existing owner protocol's code-point ordering. This consumer accepts the
-contract's bounded safe integer JSON subset and rejects floating-point input.
+## Lifetime and recovery
 
-## Verification and remaining gates
+After issuance, reads and status checks use fresh temporary-key proofs while the
+root Wallet may be locked. Recovery checks only the original result with the
+original key; it verifies the byte-exact credential and unchanged expiry and never
+submits a second approval. Every receiver call checks current parent policy,
+revocation, scope, replay and hard expiry. There is no sliding lifetime, background
+renewal or automatic root-signing fallback on a denied/expired session.
 
-The signed synthetic fixture is byte-pinned from canonical Wallet Core
-`6d8bf278bb17586ba535d19fb8fc2cd1fb5f399a`; provenance is recorded beside the
-fixture. Tests verify actual issuer/session signatures, exact requested scope,
-parent/Wallet/session installation bindings, UTF-16 ordering, fixed expiry and
-late installation of an original result.
+Temporary keys are memory-only and end on app/helper/process loss, explicit close,
+expiry or detected revocation. Root-free public challenge/dispatch audit records
+are application data, not Wallet backup or recoverable custody. Separate request
+namespaces retain old audit history without exhausting the active request's limit.
+A restored record cannot resume a session after restart. Reopening the iOS session
+review shows an existing active session rather than asking for another approval.
+Account changes and explicit removal of app read access close retained sessions.
 
-Flow tests use synthetic Wallet/issuer/custody ports plus a real durable journal
-to exercise root-lock independence, original-result recovery, dispatch-fence
-failure, client separation and close. These scheduling tests are not an actual
-Core-to-HTTP exchange qualification. The opt-in native helper process test uses
-real temporary key creation/close/loss with a disposable protected profile.
+## Qualification
 
-The real pinned Core/helper integration test creates a disposable Wallet and
-v2 parent, checks private preparation, obtains typed Core approval with real
-temporary-key possession, then installs a synthetic issuer token. After locking
-the root Wallet, the real helper produces two fresh call proofs and a status
-proof. This verifies native consumer interoperability, not the HTTP receiver.
-
-The opt-in receiver integration tests run an actual disposable DevGraph issuer
-and memory graph over the pinned private NDJSON process. A random Core Wallet
-saves that issuer's synthetic v2 parent. The actual Core/helper flow recovers a
-deliberately lost committed exchange result, reads only the allowed Task twice
-after root locking, rejects an original-proof replay, rechecks original status
-without changing expiry, and detects current parent revocation. A separate
-short-lived exchange proves actual receiver and client rejection at fixed expiry.
-No personal Wallet, installed profile or production graph is used.
-
-Before enabling the feature: connect the native review UI/MCP client lifecycle,
-qualify its request routing/expiry-edit/restart behavior and the eventual iOS
-native custody port, and review the actual installed configuration. No public
-capability or installed update is inferred from the source foundation tests.
-
-```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-swift test --scratch-path /path/to/stable/transfer-cache --filter HolderSessionTests
-```
-
-Set `HOLDER_SESSION_AGENT_TEST_BINARY` to an explicitly reviewed native helper
-to run the opt-in process check. Core's private-file reader rejects symlink
-ancestors and allow ACLs: use a protected physical path, including `/private/tmp`
-rather than `/tmp`, for disposable profiles. No personal Wallet is used.
-
-The actual receiver tests additionally require explicit paths through
-`HOLDER_SESSION_DG_TEST_PYTHON`, `HOLDER_SESSION_DG_TEST_FIXTURE`,
-`HOLDER_SESSION_DG_TEST_AUTHORITY` and `HOLDER_SESSION_DG_TEST_READ_AUTHORITY`.
-They use the backend's test-only `tests/native_read/holder_session_fixture.py`,
-with its exact source closure pinned at process launch. The fixture preprovisions
-a synthetic read grant for the random test Wallet's public key. Its `REVOKE`
-sentinel is test-only; neither production broker gains a revocation/debug tool.
+Tests use random synthetic Wallets and disposable issuers/graphs. They cover
+actual Core/helper and portable Core custody, real HTTPS with an exact fixture
+certificate pin and hostname validation, scope/expiry edits with fresh key/request,
+root-locked repeated reads, original lost-result recovery, replay, fixed expiry,
+revocation, client close, and no repeated acceptance. Existing owner native
+controller, inbox, Configure grant and uncertain journal regressions also run.
+Installed production signing and personal Wallet approvals stay human-owned.

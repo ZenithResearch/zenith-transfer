@@ -1,4 +1,3 @@
-#if os(macOS)
 import Foundation
 
 /// The broker owns routing/exchange, never temporary key custody. The closed
@@ -100,4 +99,3 @@ enum HolderSessionBrokerWire {
     return try HS.encode(result["result"]!)
   }
 }
-#endif

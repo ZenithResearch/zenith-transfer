@@ -245,6 +245,7 @@ public final class DevgraphReadClient: @unchecked Sendable {
     }
     self.transport = try transport ?? PrivateTransport(workServer: configuration)
   }
+  public var holderSessionTransport: PrivateTransport { transport }
   public var connection: WorkAccessConfiguration { configuration }
   public func cancel() { transport.cancel() }
   /// A credential-free reachability check, not an authority or membership check.
@@ -307,6 +308,18 @@ public final class DevgraphReadClient: @unchecked Sendable {
       credential: JSONSerialization.data(withJSONObject: credential), now: now, ticket: ticket)
   }
   public func manifest() async throws -> NativeReadManifest {
+    if let session = try await HolderSessionRegistry.shared.challenge(configuration: configuration) {
+      let converted = try holderReadConstraints(JSONSerialization.jsonObject(with: session.permissionData) as! [[String: Any]])
+      let version: WorkReadProtocol = converted.contains { $0["all_arenas"] as? Bool == true } ? .collectionArenaV6 : converted.contains { $0["scope"] as? String == "devgraph.arena.read" } ? .arenaV5 : .pathV4
+      let grants = try parseGrants(converted, protocol: version, holder: true)
+      let value: [String: Any] = ["schema": "devgraph.native-read-manifest.v2", "readProtocol": version.rawValue,
+        "credential_id": session.challengeID, "subject_public_key": session.intent.session.publicKey,
+        "installation_id": session.intent.session.installationID, "issuer": session.intent.parent.pin.issuer,
+        "receiver": configuration.origin, "policy_digest": session.digest, "audience": "devgraph",
+        "resource": "https://work.zenith-research.ca/devgraph", "issued_at": session.issuedAt, "expires_at": session.expiresAt,
+        "read_grants": try JSONSerialization.jsonObject(with: JSONEncoder().encode(grants))]
+      return try JSONDecoder().decode(NativeReadManifest.self, from: JSONSerialization.data(withJSONObject: value))
+    }
     if let reusable = try await reusableManifest() { return reusable }
     let access = try object(
       await repository.graphReadCredentialV2(receiver: configuration.authorityOrigin, now: now))
@@ -500,6 +513,7 @@ public final class DevgraphReadClient: @unchecked Sendable {
       "operation": (operation.hasPrefix("arena.") ? "devgraph." : "devgraph.work.") + operation,
       "resource": "https://work.zenith-research.ca/devgraph", "parameters": parameters,
     ]
+    if let data = try await HolderSessionRegistry.shared.execute(configuration: configuration, call: JSONSerialization.data(withJSONObject: call)) { return data }
     let proof: Data
     if let (service, credential) = try await holderCredential() {
       proof = try await repository.presentHolderCredential(
@@ -516,6 +530,7 @@ public final class DevgraphReadClient: @unchecked Sendable {
     return data
   }
   public func disconnect() async throws {
+    await HolderSessionRegistry.shared.close(configuration: configuration)
     let state = try await repository.state()
     if state.holderGrantProtocol == "secs.holder-grant.v1",
       let endpoint = try await holderEndpoint()
@@ -661,6 +676,8 @@ private struct HolderGrantEndpoint: Decodable {
   let schema: String
   let service: String
   let endpoint: String
+  let v2_endpoint: String?
+  let supported_schemas: [String]?
 }
 extension DevgraphReadClient {
   public func supportsReusableGrants() async throws -> Bool {
@@ -685,11 +702,16 @@ extension DevgraphReadClient {
     return endpoint
   }
   /// Retrieves the provider-signed root. It is not stored or used until review.
-  public func requestReusableGrant(_ proposal: ReadAccessProposal) async throws -> HolderGrantReview
+  public func requestReusableGrant(_ proposal: ReadAccessProposal, preferSessionGrant: Bool = false) async throws -> HolderGrantReview
   {
     guard let endpoint = try await holderEndpoint(), proposal.receiver == configuration.authorityOrigin,
       proposal.issuer == configuration.issuer, now < proposal.challengeExpiry
     else { throw WalletFailure.core("holder_grants_unavailable") }
+    let selectedEndpoint: String
+    if preferSessionGrant {
+      guard endpoint.v2_endpoint == "/monitor/wallet-access/v1/grants/v2", endpoint.supported_schemas == ["secs.holder-grant.v1", "secs.holder-grant.v2"] else { throw HolderSessionError.unsupported }
+      selectedEndpoint = endpoint.v2_endpoint!
+    } else { selectedEndpoint = endpoint.endpoint }
     let ticket = repository.lifecycleTicket()
     let approval = try proposal.membershipRequirement.approvalBody(
       await repository.approveGraphReadCredentialV2(
@@ -697,7 +719,7 @@ extension DevgraphReadClient {
     try repository.checkLifecycle(ticket)
     // Keep the exact original body in the client before dispatch. A recovery
     // resends these bytes only; it never signs a second issuance request.
-    await holderRecovery.retain(approval, service: endpoint.service, owner: proposal.owner)
+    await holderRecovery.retain(approval, service: endpoint.service, owner: proposal.owner, endpoint: selectedEndpoint)
     return try await recoverReusableGrant()
   }
   public func hasPendingReusableGrant() async -> Bool { await holderRecovery.original() != nil }
@@ -711,7 +733,7 @@ extension DevgraphReadClient {
     }
     let ticket = repository.lifecycleTicket()
     let data = try await response(
-      request(path: "/monitor/wallet-access/v1/grants", body: original.body), maximum: 131072)
+      request(path: original.endpoint, body: original.body), maximum: 131072)
     try repository.checkLifecycle(ticket)
     let value = try object(data)
     try exact(value, ["schema", "grant"])
@@ -846,10 +868,11 @@ private actor HolderReadRecovery {
     let body: Data
     let service: String
     let owner: String
+    let endpoint: String
   }
   var retained: Original?
-  func retain(_ body: Data, service: String, owner: String) {
-    retained = Original(body: body, service: service, owner: owner)
+  func retain(_ body: Data, service: String, owner: String, endpoint: String) {
+    retained = Original(body: body, service: service, owner: owner, endpoint: endpoint)
   }
   func original() -> Original? { retained }
   func clear() { retained = nil }

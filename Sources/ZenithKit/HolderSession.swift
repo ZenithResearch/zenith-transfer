@@ -1,12 +1,11 @@
-#if os(macOS)
 import CoreFoundation
 import CryptoKit
 import Foundation
 
-/// Source integration only. Qualification is not inferred from API availability.
+/// Qualified native consumer integration for the exact compiled Core revision.
 public enum HolderSessionIntegration {
-  public static let qualified = false
-  public static let coreRevision = "6d8bf278bb17586ba535d19fb8fc2cd1fb5f399a"
+  public static let qualified = true
+  public static let coreRevision = "72ed5cd36ef0d8a96a64d80d51eb12db1f4e411d"
 }
 public enum HolderSessionError: Error { case unsupported, invalid, changed, expired, unsafeHelperProfile, custodyLost }
 
@@ -83,6 +82,7 @@ public struct HolderSessionChallenge: Sendable {
   public let intent: HolderSessionPrepareIntent
   public let challengeID: String, issuedAt: UInt64, reviewDeadline: UInt64, expiresAt: UInt64
   public let permissions: [HolderGrantPermission]
+  public var permissionData: Data { get throws { try HS.encode(HS.object(data)["permissions"]!) } }
   public static func decode(_ data: Data, intent: HolderSessionPrepareIntent, now: UInt64, retained: Bool = false) throws -> Self {
     let v = try HS.object(data), parent = intent.parent, session = intent.session
     try HS.keys(v, "schema challenge_id request_id nonce issuer key_id service audience origin parent_grant_id parent_grant_digest parent_revision holder_public_key installation_id session_installation_id session_public_key permissions issued_at review_deadline expires_at")
@@ -205,7 +205,7 @@ public struct HolderSessionPrivatePayload: Sendable, CustomStringConvertible, Cu
 /// legacy owner's Python code-point ordering. Never change the old encoder.
 enum HS {
   static func value(_ data: Data) throws -> Any {
-    var strict = OwnerPlanJSON(data, maximumBytes: 131072, maximumKeys: 256, maximumArray: 256, maximumDepth: 24, allowNegativeIntegers: true)
+    var strict = HolderSessionJSON(data, maximumBytes: 131072, maximumKeys: 256, maximumArray: 256, maximumDepth: 24, allowNegativeIntegers: true)
     try strict.validate()
     return try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
   }
@@ -288,4 +288,3 @@ enum HS {
     guard data.count <= 131072 else { throw HolderSessionError.invalid }; return data
   }
 }
-#endif

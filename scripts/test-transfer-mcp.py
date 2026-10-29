@@ -51,8 +51,22 @@ class MCPBridgeTests(unittest.TestCase):
             with self.assertRaises(Exception):
                 mcp.public_result(value)
 
+    def test_native_pending_result_carries_no_invented_key_or_signing_material(self):
+        value = dict(next(r for r in FIXTURES["results"] if r["state"] != "issued"))
+        value.update(schema="zenith.session-access-result.v2", state="awaiting_human", holder_public_key=None,
+                     review_digest_sha256=None, credential_handle=None, expires_at=None, reconcile_required=False)
+        self.assertEqual(mcp.public_result(value), value)
+        for state in ["issued", "outcome_unknown", "submitting"]:
+            with self.assertRaises(Exception):
+                mcp.public_result(dict(value, state=state, reconcile_required=state == "outcome_unknown"))
+        for field in ["parent_grant", "credential", "signature", "seed"]:
+            with self.assertRaises(Exception):
+                mcp.public_result(dict(value, **{field: "private"}))
+        with self.assertRaises(Exception):
+            mcp.public_result(dict(value, schema="zenith.session-access-result.v1"))
+
     def test_client_identity_and_transport_target_not_model_arguments(self):
-        for extra in ["client_id", "token", "endpoint", "profile_file", "executable", "approve"]:
+        for extra in ["client_id", "token", "endpoint", "profile_file", "executable", "approve", "approval_source"]:
             with self.assertRaises(Exception):
                 mcp.call_tool(Path("unused"), {"name": "get_session_credential_status", "arguments": {"request_handle": "example", extra: "untrusted"}})
 

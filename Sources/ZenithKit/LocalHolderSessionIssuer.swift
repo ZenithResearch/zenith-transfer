@@ -15,6 +15,7 @@ actor LocalHolderSessionIssuer: HolderSessionIssuer {
     _ = try HS.hex(clientID, 32)
     self.process = process; self.clientID = clientID; self.pin = pin; self.context = context; self.clock = clock
   }
+  func shutdown() async { await process.stop() }
   func services() async throws -> [HolderSessionBrokerWire.Service] {
     try HolderSessionBrokerWire.services(await process.exchangeHolder(clientID: clientID, command: .services), pin: pin, context: context)
   }

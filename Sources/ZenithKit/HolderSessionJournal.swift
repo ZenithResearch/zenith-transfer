@@ -1,19 +1,18 @@
-#if os(macOS)
 import Darwin
 import Foundation
 
 /// Separate application audit storage. Neither a Wallet backup nor a key store;
 /// retaining this record never permits restoration/recreation of session custody.
-final class HolderSessionJournal: HolderSessionRecordStore, @unchecked Sendable {
+public final class HolderSessionJournal: HolderSessionRecordStore, @unchecked Sendable {
   private let directory: URL
-  init(directory: URL) throws {
+  public init(directory: URL) throws {
     self.directory = directory
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     var info = stat()
     guard lstat(directory.path, &info) == 0, info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFDIR,
       info.st_mode & 0o077 == 0 else { throw HolderSessionError.invalid }
   }
-  func save(_ record: HolderSessionFlowRecord, replacing previous: HolderSessionFlowRecord?) throws {
+  public func save(_ record: HolderSessionFlowRecord, replacing previous: HolderSessionFlowRecord?) throws {
     try validate(record)
     let file = directory.appendingPathComponent(HS.digest(Data((record.clientID + ":" + record.requestHandle).utf8)) + ".json")
     var failure: NSError?, outcome: Result<Void, Error> = .failure(HolderSessionError.invalid)
@@ -77,4 +76,3 @@ final class HolderSessionJournal: HolderSessionRecordStore, @unchecked Sendable 
     _ = try HS.integer(c["expires_at"])
   }
 }
-#endif

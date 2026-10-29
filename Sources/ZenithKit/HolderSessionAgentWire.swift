@@ -1,4 +1,3 @@
-#if os(macOS)
 import CryptoKit
 import Foundation
 
@@ -19,7 +18,7 @@ public struct HolderSessionAgentProfile: Sendable {
 
 /// Private helper protocol only. There is no model-selected command, signing
 /// seed, parent-grant import or owner operation in this closed enum.
-enum HolderSessionAgentCommand: Sendable {
+public enum HolderSessionAgentCommand: Sendable {
   case create(expiresAt: UInt64)
   case possession(session: String, challenge: HolderSessionChallenge)
   case install(session: String, credential: HolderSessionCredential)
@@ -57,8 +56,8 @@ enum HolderSessionAgentCommand: Sendable {
   }
 }
 
-enum HolderSessionAgentWire {
-  static func request(_ command: HolderSessionAgentCommand, requestID: String) throws -> Data {
+public enum HolderSessionAgentWire {
+  public static func request(_ command: HolderSessionAgentCommand, requestID: String) throws -> Data {
     _ = try HS.hex(requestID, 32)
     let data = try HS.encode(["schema": "castalia.holder-session-agent-command.v1", "request_id": requestID, "body": command.body()])
     // Reserve the terminating newline inside the producer's frame budget.
@@ -66,7 +65,7 @@ enum HolderSessionAgentWire {
     return data
   }
   /// Returns private verified helper data, never a model-facing result.
-  static func response(_ data: Data, requestID: String, command: HolderSessionAgentCommand,
+  public static func response(_ data: Data, requestID: String, command: HolderSessionAgentCommand,
     profile: HolderSessionAgentProfile, now: UInt64) throws -> Data {
     let reply = try HS.object(data)
     guard reply["schema"] as? String == "castalia.holder-session-agent-result.v1",
@@ -133,4 +132,3 @@ enum HolderSessionAgentWire {
     guard publicKey.isValidSignature(try HS.unhex(signature), for: transcript) else { throw HolderSessionError.invalid }
   }
 }
-#endif

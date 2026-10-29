@@ -111,13 +111,14 @@ def public_result(value):
             text(service["service"]); text(service["name"])
             require(type(service["read_available"]) is bool and type(service["write_available"]) is bool)
         return value
-    require(set(value) == RESULT_KEYS and value["schema"] == "zenith.session-access-result.v1")
+    require(set(value) == RESULT_KEYS and value["schema"] in {"zenith.session-access-result.v1", "zenith.session-access-result.v2"})
     require(value["state"] in STATES and type(value["reconcile_required"]) is bool)
     require(value["reconcile_required"] == (value["state"] == "outcome_unknown"))
     for field in ["request_handle", "provider_service"]:
         text(value[field])
     for field, count in [("request_id", 32), ("review_digest_sha256", 64), ("holder_public_key", 64)]:
-        require(isinstance(value[field], str) and re.fullmatch("[0-9a-f]{%d}" % count, value[field]))
+        pending = value["schema"] == "zenith.session-access-result.v2" and value["state"] in {"awaiting_human", "cancelled"} and field != "request_id"
+        require(pending and value[field] is None or isinstance(value[field], str) and re.fullmatch("[0-9a-f]{%d}" % count, value[field]))
     if value["state"] == "issued":
         require(isinstance(value["credential_handle"], str) and re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", value["credential_handle"]))
         require(type(value["expires_at"]) is int and 0 < value["expires_at"] <= SAFE)
