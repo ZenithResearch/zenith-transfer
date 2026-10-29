@@ -123,6 +123,10 @@ public protocol WalletSession: Actor {
     _ preview: NativeAccessRequestPreview, now: UInt64, ticket: UInt64
   ) async throws -> Data
   #if os(macOS)
+    func holderSessionParentReference(service: String, now: UInt64) async throws -> HolderSessionParentReference
+    func buildHolderSessionPrepare(_ intent: HolderSessionPrepareIntent, now: UInt64) async throws -> HolderSessionPrivatePayload
+    func prepareHolderSessionAuthorization(_ challenge: HolderSessionChallenge, now: UInt64) async throws -> HolderSessionAuthorizationReview
+    func approveHolderSessionAuthorization(_ review: HolderSessionAuthorizationReview, sessionSignature: String, now: UInt64) async throws -> HolderSessionPrivatePayload
     func prepareResourceOwner(_ challenge: Data, binding: ResourceOwnerBinding, now: UInt64)
       async throws -> ResourceOwnerConsent
     func approveResourceOwner(_ consent: ResourceOwnerConsent, now: UInt64) async throws -> Data
@@ -157,6 +161,20 @@ extension WalletSession {
 }
 
 extension WalletSession {
+  #if os(macOS)
+  public func holderSessionParentReference(service: String, now: UInt64) async throws -> HolderSessionParentReference {
+    throw HolderSessionError.unsupported
+  }
+  public func buildHolderSessionPrepare(_ intent: HolderSessionPrepareIntent, now: UInt64) async throws -> HolderSessionPrivatePayload {
+    throw HolderSessionError.unsupported
+  }
+  public func prepareHolderSessionAuthorization(_ challenge: HolderSessionChallenge, now: UInt64) async throws -> HolderSessionAuthorizationReview {
+    throw HolderSessionError.unsupported
+  }
+  public func approveHolderSessionAuthorization(_ review: HolderSessionAuthorizationReview, sessionSignature: String, now: UInt64) async throws -> HolderSessionPrivatePayload {
+    throw HolderSessionError.unsupported
+  }
+  #endif
   public func holderGrantSummaries() async throws -> [HolderGrantSummary] {
     throw WalletFailure.core("holder_grants_unavailable")
   }

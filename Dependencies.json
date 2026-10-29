@@ -2,7 +2,7 @@
   "schema": "zenith.transfer-dependencies.v1",
   "wallet": {
     "repository": "https://github.com/ZenithResearch/castalia-wallet",
-    "revision": "9def6b2f5a2b06ce607b44135073cdab8d8c09c5",
+    "revision": "6d8bf278bb17586ba535d19fb8fc2cd1fb5f399a",
     "crates": [
       "castalia-wallet-core",
       "castalia-wallet-native",
