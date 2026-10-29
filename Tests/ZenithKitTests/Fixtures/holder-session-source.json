@@ -1,0 +1,8 @@
+{
+  "schema": "test.fixture-source.v1",
+  "repository": "https://github.com/ZenithResearch/castalia-wallet",
+  "revision": "6d8bf278bb17586ba535d19fb8fc2cd1fb5f399a",
+  "path": "vendor/secs-grant-contract/tests/fixtures/holder-session-v1.json",
+  "sha256": "15537a80cc14ace50d1d47400c53851bf7ba272e1861fd7b7ad051cb8c400046",
+  "synthetic": true
+}

@@ -44,6 +44,7 @@ private final class NativeCore {
 public actor WalletRepository: WalletSession {
   private let core: NativeCore
   private let store: SnapshotStore
+  private let holderSessionCoreQualified: Bool
   private var previewTickets: [String: UInt64] = [:]
   private nonisolated let lifecycle = LifecycleGate()
   public nonisolated func lifecycleTicket() -> UInt64 { lifecycle.ticket() }
@@ -59,6 +60,12 @@ public actor WalletRepository: WalletSession {
     return Task { await self.cancel() }
   }
   public init(directory: URL) throws {
+    try self.init(directory: directory, holderSessionCoreQualified: HolderSessionIntegration.qualified)
+  }
+  // Internal injection for isolated consumer qualification with the new pinned
+  // Core. Production callers use the fixed qualified build configuration above.
+  init(directory: URL, holderSessionCoreQualified: Bool) throws {
+    self.holderSessionCoreQualified = holderSessionCoreQualified
     core = try NativeCore()
     store = try SnapshotStore(directory: directory)
     if let saved = try store.read() {
@@ -290,6 +297,57 @@ public actor WalletRepository: WalletSession {
   public func holderGrant(service: String, now: UInt64) async throws -> Data {
     try core.invoke(["operation": "holder_grant", "service": service, "now": now])
   }
+  #if os(macOS)
+  // No capability probing against an old Core: unknown recovery commands can
+  // invalidate its pending owner consent. Enable only with the qualified pin.
+  private func requireHolderSessionCore() throws {
+    guard holderSessionCoreQualified else { throw HolderSessionError.unsupported }
+    try Task.checkCancellation()
+  }
+  public func holderSessionParentReference(service: String, now: UInt64) async throws -> HolderSessionParentReference {
+    try requireHolderSessionCore()
+    let ticket = lifecycle.ticket()
+    let result = try core.invoke(["operation": "holder_session_parent_reference", "service": service, "now": now])
+    try checkLifecycle(ticket)
+    return try HolderSessionParentReference.decode(result, service: service, now: now)
+  }
+  public func buildHolderSessionPrepare(_ intent: HolderSessionPrepareIntent, now: UInt64) async throws -> HolderSessionPrivatePayload {
+    try requireHolderSessionCore()
+    let ticket = lifecycle.ticket()
+    let selected: Any = try intent.permissions.map { try JSONSerialization.jsonObject(with: $0) } ?? NSNull()
+    let result = try core.invoke([
+      "operation": "build_holder_session_prepare", "service": intent.parent.pin.service,
+      "request_id": intent.requestID, "session_public_key": intent.session.publicKey,
+      "session_installation_id": intent.session.installationID,
+      "context": JSONSerialization.jsonObject(with: JSONEncoder().encode(intent.context)),
+      "permissions": selected, "requested_ttl_seconds": intent.requestedTTL, "now": now,
+    ])
+    try checkLifecycle(ticket)
+    return try HolderSessionPrivatePayload.prepare(result, intent: intent)
+  }
+  public func prepareHolderSessionAuthorization(_ challenge: HolderSessionChallenge, now: UInt64) async throws -> HolderSessionAuthorizationReview {
+    try requireHolderSessionCore()
+    guard now >= challenge.issuedAt, now < challenge.reviewDeadline else { throw HolderSessionError.expired }
+    let ticket = lifecycle.ticket()
+    let result = try core.invoke([
+      "operation": "prepare_holder_session_authorization", "service": challenge.intent.parent.pin.service,
+      "challenge": JSONSerialization.jsonObject(with: challenge.data),
+      "context": JSONSerialization.jsonObject(with: JSONEncoder().encode(challenge.intent.context)), "now": now,
+    ])
+    try checkLifecycle(ticket)
+    return try HolderSessionAuthorizationReview.decode(result, challenge: challenge, lifecycle: ticket, now: now)
+  }
+  public func approveHolderSessionAuthorization(_ review: HolderSessionAuthorizationReview, sessionSignature: String, now: UInt64) async throws -> HolderSessionPrivatePayload {
+    try requireHolderSessionCore(); try checkLifecycle(review.lifecycle)
+    guard now >= review.challenge.issuedAt, now < review.challenge.reviewDeadline else { throw HolderSessionError.expired }
+    let result = try core.invoke([
+      "operation": "approve_holder_session_authorization", "token": review.token,
+      "session_signature": sessionSignature, "now": now,
+    ])
+    try checkLifecycle(review.lifecycle)
+    return try HolderSessionPrivatePayload.authorization(result, review: review, sessionSignature: sessionSignature)
+  }
+  #endif
   public func reviewHolderGrant(_ grant: Data, pin: HolderIssuerPin, now: UInt64) async throws
     -> HolderGrantReview
   {

@@ -61,9 +61,20 @@ public actor SessionProviderProcess {
     process = nil; attemptedStart = true
   }
   public func exchange(clientID: String, operation: String, arguments: Data) async throws -> Data {
-    guard clientID.range(of: "\\A[0-9a-f]{32}\\z", options: .regularExpression) != nil,
-      ["services", "prepare", "update_expiry", "owner_challenge", "submit", "reconcile", "execute", "close_client"].contains(operation)
+    guard ["services", "prepare", "update_expiry", "owner_challenge", "submit", "reconcile", "execute", "close_client"].contains(operation)
     else { throw SessionReviewBridgeError.unavailable }
+    return try await exchangeEnvelope(clientID: clientID, operation: operation, arguments: arguments,
+      commandSchema: "devgraph.session-provider-command.v1", resultSchema: "devgraph.session-provider-result.v1")
+  }
+  // Separate typed entry point; callers cannot choose a protocol/schema or pass
+  // an arbitrary operation through the new holder-session channel.
+  func exchangeHolder(clientID: String, command: HolderSessionBrokerCommand) async throws -> Data {
+    try await exchangeEnvelope(clientID: clientID, operation: command.operation, arguments: command.arguments(),
+      commandSchema: "devgraph.holder-session-provider-command.v1", resultSchema: "devgraph.holder-session-provider-result.v1")
+  }
+  private func exchangeEnvelope(clientID: String, operation: String, arguments: Data,
+    commandSchema: String, resultSchema: String) async throws -> Data {
+    guard clientID.range(of: "\\A[0-9a-f]{32}\\z", options: .regularExpression) != nil else { throw SessionReviewBridgeError.unavailable }
     // UI approval and another adapter's status check may arrive together. Keep
     // one NDJSON exchange in flight instead of failing a signed dispatch merely
     // because a harmless read currently owns the pipe. The queue is bounded.
@@ -97,7 +108,7 @@ public actor SessionProviderProcess {
     }
     guard let child = process, child.isRunning, let input, let output else { throw SessionReviewBridgeError.unavailable }
     let requestID = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-    var wire = try SessionReviewWire.encode(["schema": "devgraph.session-provider-command.v1", "request_id": requestID,
+    var wire = try SessionReviewWire.encode(["schema": commandSchema, "request_id": requestID,
       "client_id": clientID, "operation": operation, "arguments": args])
     guard wire.count < 262144 else { throw SessionReviewBridgeError.invalid }; wire.append(10)
     let request = wire
@@ -125,7 +136,7 @@ public actor SessionProviderProcess {
       var strict = OwnerPlanJSON(response, maximumBytes: 262144, maximumKeys: 256, maximumArray: 256, maximumDepth: 24, allowNegativeIntegers: true)
       try strict.validate()
       guard let value = try JSONSerialization.jsonObject(with: response) as? [String: Any],
-        value["schema"] as? String == "devgraph.session-provider-result.v1", value["request_id"] as? String == requestID,
+        value["schema"] as? String == resultSchema, value["request_id"] as? String == requestID,
         let ok = value["ok"] as? NSNumber, CFGetTypeID(ok) == CFBooleanGetTypeID(),
         Set(value.keys) == (ok.boolValue ? ["schema", "request_id", "ok", "value"] : ["schema", "request_id", "ok", "error"])
       else { throw SessionReviewBridgeError.invalid }
