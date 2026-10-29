@@ -417,7 +417,13 @@ import ZenithKit
     }
   }
   private func accept(_ result: [String: Any]) throws {
-    if result["inbox"] != nil {
+    if result["status"] as? String == "unknown", result["result"] is NSNull {
+      // The client accepts this only for an exact status check of an inbox or
+      // permission preview. Preserve the user's draft; never auto-submit it.
+      review = nil
+      status = "The previous read-only result is unavailable. Refresh request context or review your selection again. This did not approve or change a grant."
+      resultNotice = status
+    } else if result["inbox"] != nil {
       inbox = try NativeOperatorInbox(result, resource: bridge.resource); selected = nil; review = nil; existingConfiguration = nil
       status = "Inbox loaded. Select a request to configure its credential."; resultNotice = nil
     } else if result["selection"] != nil {

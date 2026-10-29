@@ -12,4 +12,6 @@ Validity applies to both columns. Review the selection, then approve the exact c
 
 Known connection, catalog and Wallet approval errors now show distinct closed diagnostics. For an expired service binding, reopen the server to obtain a fresh verified connection. For a stale request, refresh context and review again. For an uncertain result, recover the original action first. Arbitrary server or core text is not exposed. These diagnostics do not establish that the live grant failure has been resolved; that needs the actual failing step and receiver result.
 
+If the exact authenticated status check reports no saved result for an inbox read or permission preview, Transfer ends that read-only recovery and preserves the editor draft. Refresh context or review the selection again explicitly; this never resubmits a grant decision. An unknown approval, decline, revocation, Arena creation or authorization update remains blocked on its original journal. Malformed or mismatched status responses also remain blocked.
+
 Qualification: the existing permission compiler and full Transfer suite, targeted parent/child/sibling scope isolation, branch budgets, advanced handoff preserving compiled bytes, and a rendered synthetic hierarchy fixture. Real Wallet authority and consent remain user-controlled.
