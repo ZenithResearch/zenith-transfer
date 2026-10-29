@@ -107,12 +107,29 @@ private actor SuspendedSessionOwner: SessionReviewOwner {
 
 final class SessionReviewBridgeTests: XCTestCase {
   func testExternalRegistrationMetadataWhenExplicitlyRequested() throws {
-    guard let path = ProcessInfo.processInfo.environment["TRANSFER_SESSION_REGISTRATION_REVIEW_DIRECTORY"] else {
+    let environment = ProcessInfo.processInfo.environment
+    guard let path = environment["TRANSFER_SESSION_REGISTRATION_REVIEW_DIRECTORY"] else {
       throw XCTSkip("Explicit owner-private provider review directory required")
     }
     // Validation constructs an inert actor only. Do NOT call services here:
     // no provider/store/listener, issuer-key access or grant is started.
-    XCTAssertNotNil(try SessionProviderRegistration.loadIfPresent(directory:URL(fileURLWithPath:path)))
+    let directory = URL(fileURLWithPath:path)
+    if let mappingPath = environment["TRANSFER_SESSION_REGISTRATION_POSTIMAGE_MAP"] {
+      // Pre-activation test only: validate the exact future hashes against the
+      // separately audited replacement bytes. Never launch this shadow mapping.
+      let descriptor = directory.appendingPathComponent("provider.json"), bytes = try Data(contentsOf:descriptor)
+      let registration = try SessionProviderRegistration.decode(bytes)
+      let mapping = try JSONDecoder().decode([String:String].self,from:Data(contentsOf:URL(fileURLWithPath:mappingPath)))
+      XCTAssertTrue(Set(mapping.keys).isSubset(of:Set(registration.launch.sources.map(\.path))))
+      var sources = Dictionary(uniqueKeysWithValues:registration.launch.sources.map { (URL(fileURLWithPath:mapping[$0.path] ?? $0.path),$0.sha256) })
+      sources[descriptor] = OwnerSetupPlan.sha256(bytes)
+      let files = registration.launch
+      try SessionProviderLaunch(interpreter:URL(fileURLWithPath:files.interpreter.path),script:URL(fileURLWithPath:files.script.path),
+        profile:URL(fileURLWithPath:files.profile.path),interpreterSHA256:files.interpreter.sha256,scriptSHA256:files.script.sha256,
+        profileSHA256:files.profile.sha256,sources:sources).validate()
+    } else {
+      XCTAssertNotNil(try SessionProviderRegistration.loadIfPresent(directory:directory))
+    }
   }
   func testPinnedInventoryRejectsOversizedFileAndAggregateWithoutLaunching() throws {
     let root = try directory("session-inventory-budget")
