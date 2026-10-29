@@ -16,6 +16,7 @@ struct TransferSessionReviewView: View {
         VStack(alignment: .leading, spacing: 5) {
           Label("Zenith Wallet", systemImage: "wallet.pass").font(.headline)
           Text("Review session access").font(.title.bold())
+          Text("Owner approval").font(.caption).foregroundStyle(.secondary)
         }
         Spacer(); Button("Close") { controller.dismiss() }.keyboardShortcut(.cancelAction)
       }.padding(24)
@@ -152,6 +153,13 @@ struct TransferSessionSettingsView: View {
       VStack(alignment: .leading, spacing: 22) {
         Text("Session requests").font(.largeTitle.bold())
         Text("Let a local MCP client ask your Wallet for short-lived access. You review the service, resources, operations and expiry in a native window.").foregroundStyle(.secondary)
+        Picker("Approval source for new requests", selection: $controller.approvalSource) {
+          ForEach(TransferSessionReviewController.ApprovalSource.allCases, id: \.self) { source in Text(source.rawValue).tag(source) }
+        }
+        Text("Owner approval uses your administrator role. Saved reusable grant uses a grant already saved in this Wallet. A denial never changes the approval source; existing requests retain their original source.").font(.caption).foregroundStyle(.secondary)
+        if controller.approvalSource == .savedGrant && !controller.savedGrantSourceAvailable {
+          Label("Saved-grant session provider needs setup", systemImage: "info.circle").foregroundStyle(.secondary)
+        }
         Toggle("Allow local session review requests", isOn: Binding(get: { controller.enabled }, set: { controller.setEnabled($0) }))
         Text("Uses a private local socket. It opens no public network listener and does not let a client approve or sign. Wallet and grant backups are unchanged.")
           .font(.callout).foregroundStyle(.secondary)
@@ -189,6 +197,7 @@ struct TransferSessionSettingsView: View {
       }.frame(maxWidth: 760, alignment: .leading).padding(24).frame(maxWidth: .infinity)
     }
       .task { await controller.refreshServices() }
+      .onChange(of: controller.approvalSource) { _ in Task { await controller.refreshServices() } }
   }
   private func copyConfiguration() {
     let resource: URL

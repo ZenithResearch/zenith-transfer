@@ -1,18 +1,19 @@
-#if os(macOS)
 import Foundation
 
 // Source-level typed ports; these do not introduce another signed/wire format.
 // The concrete broker adapter must decode its own frozen producer contract.
-enum HolderSessionExchangeResult: Sendable {
+public enum HolderSessionExchangeResult: Sendable {
   case issued(Data), unknown, denied, revoked, expired
 }
-protocol HolderSessionIssuer: Sendable {
+public protocol HolderSessionIssuer: Sendable {
+  func shutdown() async
   func prepare(_ body: HolderSessionPrivatePayload) async throws -> Data
   func exchange(_ authorization: HolderSessionPrivatePayload, challenge: HolderSessionChallenge) async throws -> HolderSessionExchangeResult
   func status(_ proof: Data, challenge: HolderSessionChallenge) async throws -> HolderSessionExchangeResult
   func execute(_ presentation: Data) async throws -> Data
 }
-protocol HolderSessionCustody: Sendable {
+public extension HolderSessionIssuer { func shutdown() async {} }
+public protocol HolderSessionCustody: Sendable {
   func create(expiresAt: UInt64, now: UInt64) async throws -> HolderSessionIdentity
   func possession(_ challenge: HolderSessionChallenge, now: UInt64) async throws -> String
   func install(_ credential: HolderSessionCredential, now: UInt64) async throws
@@ -20,36 +21,36 @@ protocol HolderSessionCustody: Sendable {
   func status(_ challenge: HolderSessionChallenge, now: UInt64) async throws -> Data
   func stop() async
 }
-extension HolderSessionAgentProcess: HolderSessionCustody {}
 
-protocol HolderSessionWalletPort: Sendable {
+public protocol HolderSessionWalletPort: Sendable {
   func parent(service: String, now: UInt64) async throws -> HolderSessionParentReference
   func prepare(_ intent: HolderSessionPrepareIntent, now: UInt64) async throws -> HolderSessionPrivatePayload
   func review(_ challenge: HolderSessionChallenge, now: UInt64) async throws -> HolderSessionAuthorizationReview
   func approve(_ review: HolderSessionAuthorizationReview, signature: String, now: UInt64) async throws -> HolderSessionPrivatePayload
 }
-struct NativeHolderSessionWalletPort: HolderSessionWalletPort {
+public struct NativeHolderSessionWalletPort: HolderSessionWalletPort {
   let wallet: any WalletSession
-  func parent(service: String, now: UInt64) async throws -> HolderSessionParentReference {
+  public init(wallet: any WalletSession) { self.wallet = wallet }
+  public func parent(service: String, now: UInt64) async throws -> HolderSessionParentReference {
     try await wallet.holderSessionParentReference(service: service, now: now)
   }
-  func prepare(_ intent: HolderSessionPrepareIntent, now: UInt64) async throws -> HolderSessionPrivatePayload {
+  public func prepare(_ intent: HolderSessionPrepareIntent, now: UInt64) async throws -> HolderSessionPrivatePayload {
     try await wallet.buildHolderSessionPrepare(intent, now: now)
   }
-  func review(_ challenge: HolderSessionChallenge, now: UInt64) async throws -> HolderSessionAuthorizationReview {
+  public func review(_ challenge: HolderSessionChallenge, now: UInt64) async throws -> HolderSessionAuthorizationReview {
     try await wallet.prepareHolderSessionAuthorization(challenge, now: now)
   }
-  func approve(_ review: HolderSessionAuthorizationReview, signature: String, now: UInt64) async throws -> HolderSessionPrivatePayload {
+  public func approve(_ review: HolderSessionAuthorizationReview, signature: String, now: UInt64) async throws -> HolderSessionPrivatePayload {
     try await wallet.approveHolderSessionAuthorization(review, sessionSignature: signature, now: now)
   }
 }
 
-enum HolderSessionPhase: String, Codable, Sendable {
+public enum HolderSessionPhase: String, Codable, Sendable {
   case idle, preparing, awaitingHuman, dispatched, outcomeUnknown, issued, denied, revoked, expired, closed
 }
 
 /// Root-free application audit record. A journal cannot restore a lost key.
-struct HolderSessionFlowRecord: Codable, Sendable {
+public struct HolderSessionFlowRecord: Codable, Sendable {
   let schema: String
   let clientID: String, requestID: String, requestHandle: String, service: String
   let challenge: Data
@@ -58,14 +59,14 @@ struct HolderSessionFlowRecord: Codable, Sendable {
   var dispatched: Bool
   var credentialHandle: String?
 }
-protocol HolderSessionRecordStore: Sendable {
+public protocol HolderSessionRecordStore: Sendable {
   /// Must durably compare-and-swap before returning. No default memory store.
   func save(_ record: HolderSessionFlowRecord, replacing: HolderSessionFlowRecord?) throws
 }
 
 /// One request owned by one broker-authenticated local client. Only the native
 /// UI calls review/approve. This object is never selected by model arguments.
-actor HolderSessionFlow {
+public actor HolderSessionFlow {
   let clientID: String, requestID: String, requestHandle: String, service: String
   private let context: HolderSessionContext
   private let wallet: any HolderSessionWalletPort
@@ -81,7 +82,7 @@ actor HolderSessionFlow {
   private var epoch: UInt64 = 0
   private var busy = false
 
-  init(clientID: String, requestID: String, service: String, context: HolderSessionContext,
+  public init(clientID: String, requestID: String, service: String, context: HolderSessionContext,
     wallet: any HolderSessionWalletPort, custody: any HolderSessionCustody, issuer: any HolderSessionIssuer,
     journal: any HolderSessionRecordStore, clock: @escaping @Sendable () -> UInt64 = { UInt64(Date().timeIntervalSince1970) }) throws {
     _ = try HS.hex(clientID, 32); _ = try HS.hex(requestID, 32); try HS.text(service)
@@ -89,11 +90,11 @@ actor HolderSessionFlow {
     self.wallet = wallet; self.custody = custody; self.issuer = issuer; self.journal = journal; self.clock = clock
     requestHandle = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
   }
-  func currentPhase() -> HolderSessionPhase { phase }
-  func reviewedChallenge() -> HolderSessionChallenge? { challenge }
-  func publicCredentialHandle() -> String? { phase == .issued ? record?.credentialHandle : nil }
+  public func currentPhase() -> HolderSessionPhase { phase }
+  public func reviewedChallenge() -> HolderSessionChallenge? { challenge }
+  public func publicCredentialHandle() -> String? { phase == .issued ? record?.credentialHandle : nil }
 
-  func prepare(permissions: Data?, lifetime: UInt64, maximumSessionSeconds: UInt64) async throws -> HolderSessionChallenge {
+  public func prepare(permissions: Data?, lifetime: UInt64, maximumSessionSeconds: UInt64) async throws -> HolderSessionChallenge {
     guard !busy, phase == .idle, lifetime > 0, lifetime <= 3600,
       maximumSessionSeconds > 0, maximumSessionSeconds <= 3600 else { throw HolderSessionError.changed }
     busy = true; phase = .preparing; let ticket = epoch
@@ -122,10 +123,10 @@ actor HolderSessionFlow {
       record = next; challenge = reviewed; phase = .awaitingHuman
       return reviewed
     } catch {
-      phase = .closed; epoch &+= 1; await custody.stop(); throw error
+      phase = .closed; epoch &+= 1; await custody.stop(); await issuer.shutdown(); throw error
     }
   }
-  func prepareNativeReview() async throws -> HolderSessionAuthorizationReview {
+  public func prepareNativeReview() async throws -> HolderSessionAuthorizationReview {
     guard !busy, phase == .awaitingHuman, let challenge else { throw HolderSessionError.changed }
     busy = true; consent = nil; let ticket = epoch; defer { busy = false }
     try beforeConsent(challenge)
@@ -134,13 +135,13 @@ actor HolderSessionFlow {
     consent = reviewed
     return reviewed
   }
-  func invalidateConsent() {
+  public func invalidateConsent() {
     // Locking the long-term Wallet cannot invalidate an already-issued session.
     guard phase == .awaitingHuman else { return }
     consent = nil; epoch &+= 1
   }
 
-  func approveNativeReview(digest: String, expiresAt: UInt64) async throws {
+  public func approveNativeReview(digest: String, expiresAt: UInt64) async throws {
     guard !busy, phase == .awaitingHuman, let challenge, let consent,
       digest == challenge.digest, expiresAt == challenge.expiresAt else { throw HolderSessionError.changed }
     busy = true; self.consent = nil; let ticket = epoch
@@ -162,33 +163,33 @@ actor HolderSessionFlow {
       throw error
     }
   }
-  func checkOriginalResult() async throws {
+  public func checkOriginalResult() async throws {
     guard !busy, [.dispatched, .outcomeUnknown, .issued].contains(phase), let challenge else { throw HolderSessionError.changed }
     busy = true; let ticket = epoch; defer { busy = false }
-    guard clock() < challenge.expiresAt else { try transition(.expired, dispatched: true); throw HolderSessionError.expired }
+    guard clock() < challenge.expiresAt else { try await finish(.expired); throw HolderSessionError.expired }
     let proof = try await custody.status(challenge, now: clock())
     try current(ticket)
     let result = try await issuer.status(proof, challenge: challenge)
     try current(ticket)
     try await accept(result, challenge: challenge, ticket: ticket)
   }
-  func execute(client: String, handle: String, call: Data) async throws -> Data {
+  public func execute(client: String, handle: String, call: Data) async throws -> Data {
     guard !busy, phase == .issued, client == clientID, record?.credentialHandle == handle,
       let credential else { throw HolderSessionError.changed }
-    guard clock() < credential.challenge.expiresAt else { try transition(.expired, dispatched: true); throw HolderSessionError.expired }
+    guard clock() < credential.challenge.expiresAt else { try await finish(.expired); throw HolderSessionError.expired }
     busy = true; let ticket = epoch; defer { busy = false }
     let presentation = try await custody.present(credential, call: call, now: clock())
     try current(ticket)
     // No Wallet access, renewal or new exchange on the call path.
     let businessResult = try await issuer.execute(presentation)
     try current(ticket)
-    guard clock() < credential.challenge.expiresAt else { try transition(.expired, dispatched: true); throw HolderSessionError.expired }
+    guard clock() < credential.challenge.expiresAt else { try await finish(.expired); throw HolderSessionError.expired }
     return businessResult
   }
-  func close() async throws {
+  public func close() async throws {
     epoch &+= 1; consent = nil; credential = nil
     // Destroy local custody even if audit storage is unavailable.
-    phase = .closed; await custody.stop()
+    phase = .closed; await custody.stop(); await issuer.shutdown()
     if record != nil { try transition(.closed, dispatched: record!.dispatched) }
   }
   private func current(_ ticket: UInt64) throws {
@@ -200,21 +201,25 @@ actor HolderSessionFlow {
     guard now >= c.issuedAt, now < c.reviewDeadline, now < c.expiresAt else { throw HolderSessionError.expired }
   }
   private func accept(_ result: HolderSessionExchangeResult, challenge: HolderSessionChallenge, ticket: UInt64) async throws {
-    guard clock() < challenge.expiresAt else { try transition(.expired, dispatched: true); throw HolderSessionError.expired }
+    guard clock() < challenge.expiresAt else { try await finish(.expired); throw HolderSessionError.expired }
     switch result {
     case .issued(let data):
       let token = try HolderSessionCredential.decode(data, challenge: challenge, now: clock())
       if let original = credential, original.digest != token.digest { throw HolderSessionError.changed }
       try await custody.install(token, now: clock()); try current(ticket)
-      guard clock() < challenge.expiresAt else { try transition(.expired, dispatched: true); throw HolderSessionError.expired }
+      guard clock() < challenge.expiresAt else { try await finish(.expired); throw HolderSessionError.expired }
       let handle = record?.credentialHandle ?? UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
       try transition(.issued, dispatched: true, credentialHandle: handle); credential = token
     case .unknown: try transition(.outcomeUnknown, dispatched: true)
-    case .denied: try transition(.denied, dispatched: true)
-    case .revoked:
-      try transition(.revoked, dispatched: true); credential = nil; await custody.stop()
-    case .expired: try transition(.expired, dispatched: true)
+    case .denied: try await finish(.denied)
+    case .revoked: try await finish(.revoked)
+    case .expired: try await finish(.expired)
     }
+  }
+  private func finish(_ next: HolderSessionPhase) async throws {
+    credential = nil; phase = next
+    await custody.stop(); await issuer.shutdown()
+    try transition(next, dispatched: true)
   }
   private func transition(_ phase: HolderSessionPhase, dispatched: Bool, credentialHandle: String? = nil) throws {
     guard let previous = record, !previous.dispatched || dispatched else { throw HolderSessionError.changed }
@@ -224,4 +229,3 @@ actor HolderSessionFlow {
     record = next; self.phase = phase
   }
 }
-#endif

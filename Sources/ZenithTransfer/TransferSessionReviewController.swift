@@ -25,6 +25,12 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
 }
 
 @MainActor final class TransferSessionReviewController: ObservableObject {
+  enum ApprovalSource: String, CaseIterable { case owner = "Owner approval", savedGrant = "Saved reusable grant" }
+  @Published var approvalSource: ApprovalSource = .owner {
+    didSet { defaults.set(approvalSource == .savedGrant, forKey: "Transfer.sessionReview.savedGrantSource.v1") }
+  }
+  var savedGrantSourceAvailable: Bool { holderReviews != nil }
+  private var settingsWindow: NSWindow?
   static let enabledKey = "Transfer.sessionReview.localRequests.v1"
   @Published private(set) var enabled = false
   @Published private(set) var records: [String: SessionReviewRecord] = [:]
@@ -34,6 +40,7 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
   @Published private(set) var availableServices: [SessionReviewService] = []
   @Published private(set) var endedClients: Set<String> = []
   @Published var error: String?
+  private var holderReviews: (any HolderSessionReviewRouting)?
   private weak var walletModel: TransferModel?
   private let provider: any SessionReviewProvider
   private let ownerOverride: (any SessionReviewOwner)?
@@ -46,15 +53,18 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
   private var window: NSWindow?
   private var preparedOwner: String?
   private var preparing: Set<String> = []
+  private var routingPreparations: Set<String> = []
   private var knownClients: Set<String> = []
   private var lifecycle: UInt64 = 0
   init(walletModel: TransferModel?, directory: URL?, defaults: UserDefaults = .standard,
     provider: (any SessionReviewProvider)? = nil,
+    holderProvider: (any HolderSessionReviewRouting)? = nil,
     owner: (any SessionReviewOwner)? = nil,
     socketDirectory: URL = SessionReviewSocket.defaultDirectory,
     presentWindows: Bool = true,
     clock: @escaping () -> UInt64 = { UInt64(Date().timeIntervalSince1970) }) {
     self.walletModel = walletModel; self.defaults = defaults; ownerOverride = owner
+    approvalSource = defaults.bool(forKey: "Transfer.sessionReview.savedGrantSource.v1") ? .savedGrant : .owner
     var registrationFailed = false
     if let provider { self.provider = provider }
     else {
@@ -69,6 +79,12 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
     }
     self.socketDirectory = socketDirectory; self.clock = clock; self.presentWindows = presentWindows
     journal = try? directory.map(SessionReviewJournal.init(directory:))
+    holderReviews = holderProvider
+    if holderReviews == nil, let walletModel, let directory {
+      do { if let registration = try HolderSessionRegistration.loadIfPresent(directory: directory) {
+        holderReviews = TransferHolderSessionController(wallet: walletModel, directory: directory, registration: registration, openSettings: { [weak self] in self?.showSettings() })
+      } } catch { registrationFailed = true }
+    }
     if registrationFailed { self.error = "The configured local session provider could not be verified. Its files have been preserved." }
     if let journal {
       do {
@@ -84,8 +100,12 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
     if defaults.bool(forKey: Self.enabledKey) { setEnabled(true) }
   }
   func refreshServices() async {
-    do { availableServices = try await provider.services() }
+    do { availableServices = try await combinedServices() }
     catch { availableServices = []; self.error = "Local session providers could not be verified. Existing requests are preserved." }
+  }
+  private func combinedServices() async throws -> [SessionReviewService] {
+    if approvalSource == .savedGrant { return try await holderReviews?.services() ?? [] }
+    return try await provider.services()
   }
   func setEnabled(_ value: Bool) {
     if !value {
@@ -95,6 +115,7 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
       socket?.stop(); socket = nil; enabled = false; defaults.set(false, forKey: Self.enabledKey)
       Task {
         for client in closing {
+          await holderReviews?.close(client: client)
           do { try await provider.closeClient(client); knownClients.remove(client) }
           catch { /* No key-destruction or revocation confirmation is claimed. */ }
         }
@@ -113,7 +134,7 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
   func stop() {
     lifecycle &+= 1
     socket?.stop(); socket = nil; enabled = false; consent = nil; preparedOwner = nil
-    Task { await provider.shutdown() }
+    Task { await holderReviews?.stop(); await provider.shutdown() }
   }
   func invalidatePreparedConsent() { consent = nil; preparedOwner = nil }
   private var owner: (any SessionReviewOwner)? {
@@ -144,6 +165,38 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
     let raw = try SessionReviewWire.object(params)
     let epoch = lifecycle
     guard method == "close_client" || !endedClients.contains(client) else { throw SessionReviewBridgeError.unavailable }
+    let routingID = method == "request_review" ? (raw["request_id"] as? String).map { client + ":" + $0 } : nil
+    if let routingID, !routingPreparations.insert(routingID).inserted { throw SessionReviewBridgeError.unavailable }
+    defer { if let routingID { routingPreparations.remove(routingID) } }
+    var originalMemberRequest = false
+    if method == "request_review" {
+      originalMemberRequest = try holderReviews?.ownsOriginalRequest(client: client, params: raw) ?? false
+      let canonical = try SessionReviewWire.encode(raw)
+      for (handle, existing) in records where existing.clientID == client {
+        let old = try SessionReviewWire.object(existing.originalRequest)
+        if let id = raw["request_id"] as? String, old["request_id"] as? String == id {
+          guard !originalMemberRequest, existing.originalRequest == canonical else { throw SessionAccessReviewError.changed }
+          if existing.state == .awaitingHuman && !existing.dispatched { show(handle) }
+          return try publicResult(handle)
+        }
+      }
+    }
+    // A new request uses only the source chosen by the person. Missing member
+    // registration or a different service must never select owner authority.
+    let memberRequest = method == "request_review" && (originalMemberRequest || approvalSource == .savedGrant)
+    if memberRequest {
+      guard let holderReviews, holderReviews.owns(client: client, method: method, params: raw) else {
+        throw SessionReviewBridgeError.unavailable
+      }
+    }
+    // Existing handles retain their source even after the setting changes.
+    if let holderReviews, (method != "request_review" || memberRequest), holderReviews.owns(client: client, method: method, params: raw) {
+      guard knownClients.contains(client) || knownClients.count < 64 else { throw SessionReviewBridgeError.unavailable }
+      knownClients.insert(client)
+      let reply = try await holderReviews.exchange(client: client, method: method, params: params)
+      try checkClient(client, epoch: epoch)
+      return reply
+    }
     switch method {
     case "close_client":
       guard raw.isEmpty else { throw SessionReviewBridgeError.invalid }
@@ -151,12 +204,13 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
         endedClients.insert(client)
       }
       if active.flatMap({ records[$0]?.clientID }) == client { invalidatePreparedConsent() }
+      await holderReviews?.close(client: client)
       try await provider.closeClient(client)
       knownClients.remove(client)
       return try SessionReviewWire.encode(["schema":"zenith.session-client-closed.v1", "closed":true, "server_revocation_confirmed":false])
     case "list_services":
       guard raw.isEmpty else { throw SessionReviewBridgeError.invalid }
-      let services = try await provider.services()
+      let services = try await combinedServices()
       try checkClient(client, epoch: epoch)
       guard services.count <= 64 else { throw SessionReviewBridgeError.invalid }
       return try SessionReviewWire.encode(["schema": "zenith.session-review-services.v1", "services":
@@ -169,14 +223,6 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
         ["service", "session_label", "purpose"].allSatisfy({ (raw[$0] as? String)?.isEmpty == false })
       else { throw SessionReviewBridgeError.invalid }
       let canonical = try SessionReviewWire.encode(raw)
-      for (handle, existing) in records where existing.clientID == client {
-        let old = try SessionReviewWire.object(existing.originalRequest)
-        if old["request_id"] as? String == id {
-          guard existing.originalRequest == canonical else { throw SessionAccessReviewError.changed }
-          if existing.state == .awaitingHuman && !existing.dispatched { show(handle) }
-          return try publicResult(handle)
-        }
-      }
       let correlation = client + ":" + id
       guard records.count < 64, knownClients.contains(client) || knownClients.count < 64,
         preparing.insert(correlation).inserted else { throw SessionReviewBridgeError.unavailable }
@@ -245,6 +291,14 @@ private struct NativeSessionReviewOwner: SessionReviewOwner {
       panel.center(); window = panel
     }
     window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+  }
+  func showSettings() {
+    if settingsWindow == nil {
+      let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 760, height: 680), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+      panel.title = "Session requests"; panel.isReleasedWhenClosed = false
+      panel.contentView = NSHostingView(rootView: TransferSessionSettingsView(controller: self)); panel.center(); settingsWindow = panel
+    }
+    settingsWindow?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
   }
   func dismiss() { window?.orderOut(nil); consent = nil; preparedOwner = nil; active = nil }
   func changeExpiry(_ expiry: UInt64) async {

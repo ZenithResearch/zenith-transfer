@@ -125,7 +125,7 @@ actor HolderSessionAgentProcess {
         }.value
       }, onCancel: { if child.isRunning { child.terminate() } })
       try Task.checkCancellation()
-      return try HolderSessionAgentWire.response(response, requestID: requestID, command: command, profile: profile, now: now)
+      return try HolderSessionAgentWire.response(response, requestID: requestID, command: command, profile: profile, now: UInt64(Date().timeIntervalSince1970))
     } catch {
       // Unknown/corrupt replies cannot be replayed on a fresh helper. Original
       // server outcomes remain recoverable only while their temporary key lives.
@@ -133,4 +133,6 @@ actor HolderSessionAgentProcess {
     }
   }
 }
+
+extension HolderSessionAgentProcess: HolderSessionCustody {}
 #endif

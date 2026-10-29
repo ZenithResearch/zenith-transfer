@@ -297,7 +297,6 @@ public actor WalletRepository: WalletSession {
   public func holderGrant(service: String, now: UInt64) async throws -> Data {
     try core.invoke(["operation": "holder_grant", "service": service, "now": now])
   }
-  #if os(macOS)
   // No capability probing against an old Core: unknown recovery commands can
   // invalidate its pending owner consent. Enable only with the qualified pin.
   private func requireHolderSessionCore() throws {
@@ -347,7 +346,6 @@ public actor WalletRepository: WalletSession {
     try checkLifecycle(review.lifecycle)
     return try HolderSessionPrivatePayload.authorization(result, review: review, sessionSignature: sessionSignature)
   }
-  #endif
   public func reviewHolderGrant(_ grant: Data, pin: HolderIssuerPin, now: UInt64) async throws
     -> HolderGrantReview
   {

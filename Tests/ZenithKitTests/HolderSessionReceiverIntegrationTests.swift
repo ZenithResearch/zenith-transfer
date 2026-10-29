@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import Security
 import XCTest
 @testable import CastaliaCustody
 @testable import ZenithKit
@@ -18,14 +19,15 @@ final class HolderSessionReceiverIntegrationTests: XCTestCase {
     return sources
   }
   private struct Harness {
-    let directory: URL, fixtureDirectory: URL
+    let directory: URL, fixtureDirectory: URL, profile: URL
+    let pin: HolderIssuerPin, context: HolderSessionContext
     let wallet: WalletRepository, observedWallet: ObservedHolderWallet
     let issuer: LocalHolderSessionIssuer, process: SessionProviderProcess
     let custody: RecordingHolderCustody
     let droppedReply: DropHolderReply?
     let flow: HolderSessionFlow, call: Data
   }
-  private func setup(lifetime: UInt64, dropReply: Bool = false) async throws -> Harness {
+  private func setup(lifetime: UInt64, dropReply: Bool = false, nativeCustody: Bool = false, approve: Bool = true, origin: String = "app://zenith-transfer") async throws -> Harness {
     let env = ProcessInfo.processInfo.environment
     func selected(_ key: String) throws -> URL {
       guard let value = env[key], value.hasPrefix("/") else { throw XCTSkip("Explicit disposable receiver inputs required: " + key) }
@@ -50,7 +52,7 @@ final class HolderSessionReceiverIntegrationTests: XCTestCase {
     child.executableURL = python
     child.arguments = ["-I", script.path, "--directory", fixtureDirectory.path,
       "--holder-public-key", try XCTUnwrap(state.publicKey), "--holder-binary", authority.path,
-      "--read-binary", read.path, "--origin", "app://zenith-transfer"]
+      "--read-binary", read.path, "--origin", origin]
     child.environment = ["PATH": "/usr/bin:/bin"]
     child.standardOutput = output; child.standardError = errors
     let timeout = DispatchWorkItem { if child.isRunning { child.terminate() } }
@@ -86,7 +88,8 @@ final class HolderSessionReceiverIntegrationTests: XCTestCase {
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: agentProfile.path)
     let agent = HolderSessionAgentProcess(launch: .init(executable: agentBinary, profileFile: agentProfile,
       executableSHA256: HS.digest(try Data(contentsOf: agentBinary)), profileSHA256: HS.digest(agentBytes)))
-    let custody = RecordingHolderCustody(agent: agent), observed = ObservedHolderWallet(wallet: wallet)
+    let selectedCustody: any HolderSessionCustody = nativeCustody ? try NativeHolderSessionCustody(profileData: agentBytes) : agent
+    let custody = RecordingHolderCustody(agent: selectedCustody), observed = ObservedHolderWallet(wallet: wallet)
     ownedCustody = custody
     let dropping = dropReply ? DropHolderReply(issuer: issuer) : nil
     let selectedIssuer: any HolderSessionIssuer = dropping.map { $0 as any HolderSessionIssuer } ?? issuer
@@ -95,12 +98,14 @@ final class HolderSessionReceiverIntegrationTests: XCTestCase {
       issuer: selectedIssuer,
       journal: HolderSessionJournal(directory: directory.appendingPathComponent("journal")))
     let challenge = try await flow.prepare(permissions: nil, lifetime: lifetime, maximumSessionSeconds: try XCTUnwrap(services.first).maximumTTL)
-    _ = try await flow.prepareNativeReview()
-    try await flow.approveNativeReview(digest: challenge.digest, expiresAt: challenge.expiresAt)
+    if approve {
+      _ = try await flow.prepareNativeReview()
+      try await flow.approveNativeReview(digest: challenge.digest, expiresAt: challenge.expiresAt)
+    }
     let permission = try XCTUnwrap(challenge.permissions.first { $0.operation == "devgraph.work.list" })
     let call = try HS.encode(["operation": permission.operation, "resource": permission.resource,
       "parameters": ["path": "/todos/v2?kind=Task"]])
-    return Harness(directory: directory, fixtureDirectory: fixtureDirectory, wallet: wallet, observedWallet: observed,
+    return Harness(directory: directory, fixtureDirectory: fixtureDirectory, profile: profile, pin: pin, context: context, wallet: wallet, observedWallet: observed,
       issuer: issuer, process: process, custody: custody, droppedReply: dropping, flow: flow, call: call)
     } catch {
       await ownedCustody?.stop(); await ownedProcess?.stop()
@@ -112,8 +117,10 @@ final class HolderSessionReceiverIntegrationTests: XCTestCase {
     try? await h.flow.close(); await h.process.stop()
     try? FileManager.default.removeItem(at: h.directory)
   }
-  func testActualReceiverRootLockReplayOriginalStatusAndRevocation() async throws {
-    let h = try await setup(lifetime: 60, dropReply: true)
+  func testActualReceiverRootLockReplayOriginalStatusAndRevocation() async throws { try await exerciseReceiver(nativeCustody: false) }
+  func testPortableNativeCustodyReceiverRecoveryRootLockAndRevocation() async throws { try await exerciseReceiver(nativeCustody: true) }
+  private func exerciseReceiver(nativeCustody: Bool) async throws {
+    let h = try await setup(lifetime: 60, dropReply: true, nativeCustody: nativeCustody)
     do {
       let unknown = await h.flow.currentPhase(); XCTAssertEqual(unknown, .outcomeUnknown)
       let preparedChallenge = await h.flow.reviewedChallenge(), challenge = try XCTUnwrap(preparedChallenge)
@@ -142,6 +149,82 @@ final class HolderSessionReceiverIntegrationTests: XCTestCase {
       let unavailable = await h.flow.publicCredentialHandle(); XCTAssertNil(unavailable)
       await cleanup(h)
     } catch { await cleanup(h); throw error }
+  }
+  @MainActor func testPortableNativeSignerEditsAndReadsThroughActualHTTPSReceiver() async throws {
+    let h = try await setup(lifetime: 60, nativeCustody: true, approve: false, origin: "app://zenith-ios")
+    let env = ProcessInfo.processInfo.environment, server = Process(), output = Pipe()
+    var transport: PrivateTransport?
+    do {
+      server.executableURL = URL(fileURLWithPath: try XCTUnwrap(env["HOLDER_SESSION_DG_TEST_PYTHON"]))
+      server.arguments = ["-I", try XCTUnwrap(env["HOLDER_SESSION_DG_TEST_FIXTURE"]), "--profile-file", h.profile.path, "--https"]
+      server.environment = ["PATH": "/usr/bin:/bin"]; server.standardOutput = output; server.standardError = Pipe()
+      let timeout = DispatchWorkItem { if server.isRunning { server.terminate() } }
+      DispatchQueue.global().asyncAfter(deadline: .now() + 15, execute: timeout)
+      try server.run()
+      var line = Data()
+      while line.count < 16384, let byte = try output.fileHandleForReading.read(upToCount: 1), !byte.isEmpty {
+        if byte == Data([10]) { break }; line.append(byte)
+      }
+      timeout.cancel()
+      let info = try HS.object(line), address = try XCTUnwrap(info["base_url"] as? String)
+      let certificate = try String(contentsOfFile: XCTUnwrap(info["certificate"] as? String), encoding: .utf8)
+      let body = certificate.split(separator: "\n").filter { !$0.hasPrefix("-----") }.joined()
+      let der = try XCTUnwrap(Data(base64Encoded: body))
+      let c = try WorkAccessConfiguration(name: "Disposable HTTPS fixture", receiver: XCTUnwrap(URL(string: address)), issuer: h.pin.issuer,
+        keyID: h.pin.key_id, publicKey: h.pin.public_key, network: .local, tlsCertificateSHA256: HS.digest(der))
+      let leaf = try XCTUnwrap(SecCertificateCreateWithData(nil, der as CFData))
+      var trust: SecTrust?
+      XCTAssertEqual(SecTrustCreateWithCertificates(leaf, SecPolicyCreateSSL(true, "127.0.0.1" as CFString), &trust), errSecSuccess)
+      let selectedTrust = try XCTUnwrap(trust)
+      let accepted = try LANServerTrust(configuration: c).accepts(selectedTrust, host: "127.0.0.1", port: c.receiver.port!)
+      var trustError: CFError?
+      _ = SecTrustEvaluateWithError(selectedTrust, &trustError)
+      XCTAssertTrue(accepted, "Fixture certificate: \(String(describing: trustError))")
+      let http = try PrivateTransport(workServer: c); transport = http
+      var found: HolderSessionCapabilities?
+      var lastDiscoveryError: Error?
+      for _ in 0..<30 {
+        do { found = try await HTTPSHolderSessionIssuer.discover(transport: http, configuration: c); break }
+        catch { lastDiscoveryError = error; try await Task.sleep(nanoseconds: 100_000_000) }
+      }
+      let caps = try XCTUnwrap(found, "Discovery: \(String(describing: lastDiscoveryError))"), client = String(repeating: "ac", count: 16)
+      let model = try HolderSessionReviewModel(service: caps.provider.service, label: "Synthetic iOS native review", purpose: "Actual HTTPS scoped read", maximumLifetime: caps.maximumLifetime) {
+        try HolderSessionFlow(clientID: client, requestID: UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased(),
+          service: caps.provider.service, context: caps.context, wallet: h.observedWallet,
+          custody: NativeHolderSessionCustody(profileData: caps.custodyProfile),
+          issuer: HTTPSHolderSessionIssuer(transport: http, configuration: c, capabilities: caps),
+          journal: HolderSessionJournal(directory: h.directory.appendingPathComponent("https-journal")))
+      }
+      await model.prepare(lifetime: 60)
+      let old = try XCTUnwrap(model.challenge)
+      await model.prepare(lifetime: 120)
+      let reviewed = try XCTUnwrap(model.challenge)
+      XCTAssertNotEqual(old.intent.requestID, reviewed.intent.requestID)
+      XCTAssertNotEqual(old.intent.session.publicKey, reviewed.intent.session.publicKey)
+      XCTAssertGreaterThan(reviewed.expiresAt, old.expiresAt)
+      await model.approve(digest: reviewed.digest, expiresAt: reviewed.expiresAt)
+      XCTAssertEqual(model.phase, .issued, model.error ?? "")
+      let handle = try XCTUnwrap(model.credentialHandle)
+      await h.wallet.lock(); let before = await h.observedWallet.calls()
+      for _ in 0..<2 {
+        let bytes = try await model.execute(client: client, handle: handle, call: h.call)
+        let result = String(decoding: bytes, as: UTF8.self)
+        XCTAssertTrue(result.contains("allowed-1")); XCTAssertFalse(result.contains("Task/hidden"))
+      }
+      await model.checkOriginalResult()
+      await model.approve(digest: reviewed.digest, expiresAt: reviewed.expiresAt)
+      let after = await h.observedWallet.calls(), approvals = await h.observedWallet.approvalCount()
+      XCTAssertEqual(before, after); XCTAssertEqual(approvals, 1)
+      XCTAssertEqual(model.challenge?.expiresAt, reviewed.expiresAt)
+      try Data().write(to: h.fixtureDirectory.appendingPathComponent("REVOKE"))
+      await model.checkOriginalResult(); XCTAssertEqual(model.phase, .revoked); XCTAssertNil(model.credentialHandle)
+      await model.close(); http.cancel()
+      if server.isRunning { server.terminate(); server.waitUntilExit() }
+      await cleanup(h)
+    } catch {
+      transport?.cancel(); if server.isRunning { server.terminate(); server.waitUntilExit() }
+      await cleanup(h); throw error
+    }
   }
   func testActualReceiverAndClientRejectAtFixedExpiryWithoutNewApproval() async throws {
     let h = try await setup(lifetime: 8)
@@ -177,10 +260,10 @@ private actor ObservedHolderWallet: HolderSessionWalletPort {
   func approve(_ review: HolderSessionAuthorizationReview, signature: String, now: UInt64) async throws -> HolderSessionPrivatePayload { count += 1; approvals += 1; return try await port.approve(review, signature: signature, now: now) }
 }
 private actor RecordingHolderCustody: HolderSessionCustody {
-  let agent: HolderSessionAgentProcess
+  let agent: any HolderSessionCustody
   private var last: Data?
   private var installed: Data?
-  init(agent: HolderSessionAgentProcess) { self.agent = agent }
+  init(agent: any HolderSessionCustody) { self.agent = agent }
   func lastPresentation() -> Data? { last }
   func installedCredential() -> Data? { installed }
   func create(expiresAt: UInt64, now: UInt64) async throws -> HolderSessionIdentity { try await agent.create(expiresAt: expiresAt, now: now) }

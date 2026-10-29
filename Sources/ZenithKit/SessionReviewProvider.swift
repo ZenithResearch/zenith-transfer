@@ -97,7 +97,7 @@ public final class SessionReviewJournal: @unchecked Sendable {
   }
   public func load() throws -> [SessionReviewRecord] {
     let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-      .filter { $0.pathExtension == "json" && $0.lastPathComponent != "provider.json" }
+      .filter { $0.pathExtension == "json" && !["provider.json", "holder-session-provider.json"].contains($0.lastPathComponent) }
     guard files.count <= 64 else { throw SessionReviewBridgeError.unavailable }
     return try files.map { file in
       guard let data = try read(file) else { throw SessionReviewBridgeError.unavailable }

@@ -122,7 +122,7 @@ final class HolderSessionTests: XCTestCase {
     let request = try HS.object(HolderSessionAgentWire.request(.create(expiresAt: 500), requestID: String(repeating: "ab", count: 16)))
     XCTAssertEqual(request["schema"] as? String, "castalia.holder-session-agent-command.v1")
     XCTAssertEqual(Set((request["body"] as! [String: Any]).keys), ["operation", "expires_at"])
-    XCTAssertFalse(HolderSessionIntegration.qualified)
+    XCTAssertTrue(HolderSessionIntegration.qualified)
   }
   func testPrivatePreparePreservesNullAndRedactsRoot() throws {
     let f = try fixture(), i = try intent(f)
@@ -183,7 +183,7 @@ final class HolderSessionTests: XCTestCase {
   func testUnqualifiedBridgeDoesNotProbeOrChangeInstalledCore() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let repository = try WalletRepository(directory: directory)
+    let repository = try WalletRepository(directory: directory, holderSessionCoreQualified: false)
     let before = try await repository.state(), lifecycle = repository.lifecycleTicket()
     do { _ = try await repository.holderSessionParentReference(service: "service:example", now: 103); XCTFail("Unqualified Core must not be probed") }
     catch HolderSessionError.unsupported { }
@@ -367,8 +367,33 @@ final class HolderSessionTests: XCTestCase {
       XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("parent_grant\""))
     }
   }
+  @MainActor func testNativeReviewEditsReplaceUnsubmittedFlowAndCannotRepeatAcceptance() async throws {
+    let first = try flowFixture(), second = try flowFixture()
+    defer { try? FileManager.default.removeItem(at: first.4); try? FileManager.default.removeItem(at: second.4) }
+    let factory = ReviewFlowFactory([first.0, second.0])
+    let model = try HolderSessionReviewModel(service: "service:example", label: "Synthetic native review", purpose: "Read fixture", maximumLifetime: 600) { try await factory.next() }
+    await model.prepare(lifetime: 300)
+    XCTAssertEqual(model.phase, .awaitingHuman)
+    await model.prepare(lifetime: 301)
+    let old = await first.0.currentPhase(); XCTAssertEqual(old, .closed)
+    let reviewed = try XCTUnwrap(model.challenge)
+    await model.approve(digest: reviewed.digest, expiresAt: reviewed.expiresAt)
+    XCTAssertEqual(model.phase, .issued)
+    await model.approve(digest: reviewed.digest, expiresAt: reviewed.expiresAt)
+    await model.prepare(lifetime: 300)
+    let count = await second.2.exchanges(), factories = await factory.count()
+    XCTAssertEqual(count, 1); XCTAssertEqual(factories, 2)
+    await model.close(); XCTAssertEqual(model.phase, .closed); XCTAssertNil(model.credentialHandle)
+  }
+
 }
 
+private actor ReviewFlowFactory {
+  private var flows: [HolderSessionFlow]; private var used = 0
+  init(_ flows: [HolderSessionFlow]) { self.flows = flows }
+  func next() throws -> HolderSessionFlow { guard used < flows.count else { throw HolderSessionError.invalid }; defer { used += 1 }; return flows[used] }
+  func count() -> Int { used }
+}
 private final class FlowClock: @unchecked Sendable {
   private let lock = NSLock(); private var value: UInt64 = 103
   func now() -> UInt64 { lock.lock(); defer { lock.unlock() }; return value }
@@ -400,7 +425,7 @@ private actor FlowWallet: HolderSessionWalletPort {
       "schema": "secs.holder-session-prepare.v1", "request_id": i.requestID, "parent_grant": fixture["parent_grant"]!,
       "installation_id": i.parent.installationID, "session_public_key": i.session.publicKey,
       "session_installation_id": i.session.installationID, "origin": i.context.origin, "audience": i.context.audience,
-      "permissions": NSNull(), "requested_ttl_seconds": i.requestedTTL]]), intent: i)
+      "permissions": try i.permissions.map { try HS.value($0) } ?? NSNull(), "requested_ttl_seconds": i.requestedTTL]]), intent: i)
   }
   func review(_ challenge: HolderSessionChallenge, now: UInt64) throws -> HolderSessionAuthorizationReview {
     try check(); var s = try HS.object(challenge.data)
