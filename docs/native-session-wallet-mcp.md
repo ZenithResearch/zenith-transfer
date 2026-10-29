@@ -106,7 +106,7 @@ tool result cannot be used to programmatically approve it.
 ## Qualification and compatibility
 
 The producer is `ZenithResearch/devgraph` at
-`1b3c5f03a1b7e5ba6ea51d594d7803ac35ce63b9`; custody is
+`28a16049e7e6138a45f702a93278cd720890bd7b`; custody is
 `ZenithResearch/castalia-wallet` at
 `a325fcf90ef6ffa7535235e9cd38f6801d87a8b0`.
 The initial unsigned manifest fixture and pin remain documented in
@@ -125,10 +125,16 @@ Wallet, reads the permitted task, denies another task and another MCP client,
 and confirms the owner's identity and empty grant store afterward. Automated
 approval in this test is confined to those new disposable fixtures.
 
-This qualification supports the fixture's explicit Work get/list mapping.
-Modern Arena/path/standing profiles and writes are refused rather than flattened
-into a different scope. Actual DevGraph profile mapping, reviewed registration,
-production activation and installed-app replacement remain separate gates.
+The disposable native test supports the fixture's explicit Work get/list mapping.
+The separately qualified DevGraph adapter also uses the existing provisioning
+decoder and read compiler for fixed and dynamic Arena, hierarchy and standing
+read profiles. The entire secS permission list must round-trip exactly; mappings
+that add an operation, drop an ancestry guard or broaden a selector are refused.
+Writes remain unavailable. The staged actual-service test requests only the
+Gallery Arena record's paired get/list permissions, without Work access.
+Reviewed registration, production activation and installed-app replacement remain
+separate gates. See the producer's
+[mapping qualification](https://github.com/ZenithResearch/devgraph/blob/28a16049e7e6138a45f702a93278cd720890bd7b/docs/contracts/session-access-review/v1/disposable-provider.md#modern-profile-mapping-qualification).
 
 ## Provider registration
 
