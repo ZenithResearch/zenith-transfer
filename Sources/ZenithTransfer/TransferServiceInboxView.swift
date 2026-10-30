@@ -12,6 +12,10 @@ import ZenithKit
   @Published var loaded = false
   @Published var error: String?
   private var observers: [AnyCancellable] = []
+  private enum InboxPage { case first, after(String) }
+  private var retainedInboxPage: InboxPage?
+  private var completedInbox: NativeOperatorInbox?
+  private var loadingThroughEndpoint = false
   init(resource: RegisteredResource, repository: any WalletSession,
        journalDirectory: URL? = nil,
        exchange: ((String, Data) async throws -> PrivateHTTPResponse)? = nil) {
@@ -21,10 +25,58 @@ import ZenithKit
       journalDirectory: journalDirectory, requireLocal: true, rpcExchange: exchange)
     editor = NativeCredentialModel(bridge: bridge)
     observers.append(editor.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() })
-    observers.append(bridge.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() })
-    observers.append(editor.$inbox.dropFirst().sink { [weak self] value in
-      if value == nil { self?.snapshot = ServiceInboxSnapshot(); self?.loaded = false }
+    captureRetainedInboxPage()
+    observers.append(bridge.objectWillChange.sink { [weak self] _ in
+      self?.captureRetainedInboxPage()
+      self?.objectWillChange.send()
     })
+    observers.append(editor.$inbox.dropFirst().sink { [weak self] value in
+      guard let self else { return }
+      guard let value else {
+        self.completedInbox = nil; self.snapshot = ServiceInboxSnapshot(); self.loaded = false
+        return
+      }
+      guard !self.loadingThroughEndpoint else { return }
+      self.completedInbox = value
+      self.reconcileCompletedInbox(state: self.editor.state)
+    })
+    observers.append(editor.$state.dropFirst().sink { [weak self] state in
+      self?.reconcileCompletedInbox(state: state)
+    })
+  }
+  private func captureRetainedInboxPage() {
+    guard let data = try? bridge.retainedNativeAction(),
+      let record = try? GrantJSON.object(data), let action = record["action"] as? [String:Any]
+    else { return }
+    guard action["action"] as? String == "inbox" else { retainedInboxPage = nil; return }
+    if let value = action["after_id"] {
+      guard let cursor = value as? String, GrantJSON.hex(cursor,32) else { retainedInboxPage = nil; return }
+      retainedInboxPage = .after(cursor)
+    } else { retainedInboxPage = .first }
+  }
+  private func reconcileCompletedInbox(state: NativeOperatorClient.State) {
+    // The child validates its result before publishing inbox, then returns idle.
+    // Do not reinterpret a prepared/unknown mutation or send another read here.
+    guard !loadingThroughEndpoint, state == .idle, let inbox = completedInbox else { return }
+    completedInbox = nil
+    defer { retainedInboxPage = nil }
+    let append: Bool
+    switch retainedInboxPage {
+    case .first: append = false
+    case .after(let cursor) where snapshot.next == cursor: append = true
+    default:
+      loaded = false
+      error = "The original page was checked. Review the inbox again to load all pages."
+      return
+    }
+    do {
+      var next = snapshot
+      try next.accept(inbox, authority: id, append: append)
+      snapshot = next; loaded = true; error = nil
+    } catch {
+      loaded = false
+      self.error = NativeCredentialDiagnostic.message(error)
+    }
   }
   func load(after: String? = nil) async {
     error = nil
@@ -32,10 +84,15 @@ import ZenithKit
       guard editor.state == .idle else {
         throw editor.state == .prepared && !editor.isRecovery ? NativeGrantError.notSent : NativeGrantError.recovery
       }
+      loadingThroughEndpoint = true
+      completedInbox = nil
+      retainedInboxPage = after.map { .after($0) } ?? .first
+      defer { loadingThroughEndpoint = false }
       try await editor.loadServiceInbox(after: after)
       guard let inbox = editor.inbox else { throw NativeGrantError.invalid }
       try snapshot.accept(inbox, authority: id, append: after != nil)
       loaded = true
+      retainedInboxPage = nil
     } catch {
       // Never present an old successful snapshot as a complete current inbox.
       self.error = NativeCredentialDiagnostic.message(error)

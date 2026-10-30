@@ -87,7 +87,10 @@ final class TransferServiceInboxTests: XCTestCase {
         let action = ((input["challenge"] as! [String:Any])["details"] as! [String:Any])["action"] as! [String:Any]
         XCTAssertEqual(action["action"] as? String,"inbox")
         received.append(resource.id)
-        var output = try self.inbox(resource,requests:[self.request()])
+        let paginated = resource.id == resources[0].id
+        let cursor = String(repeating:"a",count:32)
+        var output = try self.inbox(resource,requests:[self.request(action["after_id"] == nil ? "a" : "f")],
+          total:paginated ? 2 : 1, next:paginated && action["after_id"] == nil ? cursor : nil)
         output["schema"] = "devgraph.access-operator-result.v2"; output["action_id"] = action["action_id"]; output["authority_issued"] = false
         // Browsing the aggregate must not automatically migrate old authority.
         output["owner_arena_upgrade"] = ["enabled":false,"policy_digest_sha256":String(repeating:"f",count:64)]
@@ -106,7 +109,16 @@ final class TransferServiceInboxTests: XCTestCase {
     }
     await load.value
     XCTAssertEqual(received,resources.map(\.id))
-    XCTAssertEqual(model.requests.count,2); XCTAssertEqual(model.grants.count,2); XCTAssertTrue(model.complete)
+    XCTAssertEqual(model.requests.count,2); XCTAssertEqual(model.grants.count,2); XCTAssertFalse(model.complete)
+    let more = Task { await model.more(endpoints[0]) }
+    for _ in 0..<300 { if endpoints[0].bridge.consent != nil { break }; try await Task.sleep(nanoseconds:10_000_000) }
+    XCTAssertEqual(endpoints[0].bridge.consent?.operation,"access.inbox")
+    endpoints[0].bridge.resolve(true)
+    await more.value
+    XCTAssertEqual(model.requests.count,3); XCTAssertTrue(model.complete)
+    XCTAssertEqual(endpoints[0].snapshot.requests.map { $0.raw["request_id"] as? String },
+      [String(repeating:"a",count:32),String(repeating:"f",count:32)])
+    XCTAssertEqual(received,resources.map(\.id)+[resources[0].id])
     for endpoint in endpoints { XCTAssertNil(try endpoint.bridge.retainedNativeAction()) }
     // A failed component must not make a partial inbox look complete.
     endpoints[1].loaded = false
@@ -136,6 +148,177 @@ final class TransferServiceInboxTests: XCTestCase {
       XCTAssertEqual(try journal.load(), original)
       XCTAssertNil(endpoint.bridge.consent)
     }
+  }
+  @MainActor func testCompletedRetainedInboxUpdatesAggregateAndRetiresOnlyItsStaleError() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:root) }
+    let wallet = try WalletRepository(directory:root.appendingPathComponent("wallet"))
+    _ = try await wallet.create(password:"Synthetic test Wallet password")
+    let backup = try await wallet.exportRecovery(password:"Synthetic backup password")
+    _ = try await wallet.verifyBackup(file:backup,password:"Synthetic backup password")
+    let resource = try resource("fixture.example")
+    var preparedIDs: [String] = [], executions = 0
+    let endpoint = ServiceInboxEndpoint(resource:resource, repository:wallet,
+      journalDirectory:root.appendingPathComponent("actions"), exchange:{ operation, bytes in
+        let input = try GrantJSON.object(bytes)
+        if operation == "challenge" {
+          let action = input["action"] as! [String:Any]
+          XCTAssertEqual(action["action"] as? String,"inbox")
+          preparedIDs.append(action["action_id"] as! String)
+          let now = Int(Date().timeIntervalSince1970)
+          let challenge: [String:Any] = ["schema":"castalia.access-request-challenge.v1", "challenge_id":UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased(), "nonce":String(repeating:"A",count:43), "issuer":"fixture", "receiver":resource.id, "subject_public_key":input["subject_public_key"]!, "installation_id":input["installation_id"]!, "operation":"access.inbox", "issued_at":now, "expires_at":now+120, "details":["action":action,"policy_revision":1,"policy_digest_sha256":String(repeating:"b",count:64)]]
+          return PrivateHTTPResponse(status:200,data:try GrantJSON.data(challenge))
+        }
+        XCTAssertEqual(operation,"execute"); XCTAssertNotNil(input["signature"])
+        executions += 1
+        let action = ((input["challenge"] as! [String:Any])["details"] as! [String:Any])["action"] as! [String:Any]
+        var output = try self.inbox(resource,requests:[self.request("f")])
+        output["schema"] = "devgraph.access-operator-result.v2"; output["action_id"] = action["action_id"]; output["authority_issued"] = false
+        return PrivateHTTPResponse(status:200,data:try GrantJSON.data(output))
+      })
+    defer { endpoint.bridge.cancel() }
+    let service = TransferLogicalService.groups([try server(resource)])[0]
+    let aggregate = TransferServiceInboxModel(service:service)
+    aggregate.endpoints = [endpoint]
+    // Cancel the real synthetic consent, then retry the aggregate refresh.
+    let first = Task { await endpoint.load() }
+    for _ in 0..<300 { if endpoint.bridge.consent != nil { break }; try await Task.sleep(nanoseconds:10_000_000) }
+    XCTAssertEqual(endpoint.bridge.consent?.operation,"access.inbox")
+    endpoint.bridge.resolve(false)
+    await first.value
+    XCTAssertEqual(endpoint.editor.state,.prepared)
+    await endpoint.load()
+    XCTAssertEqual(endpoint.error, NativeGrantError.notSent.errorDescription)
+    XCTAssertFalse(aggregate.complete)
+    // Resume through the actual child editor, native client, journal and Combine.
+    endpoint.editor.resume()
+    for _ in 0..<300 { if endpoint.bridge.consent != nil { break }; try await Task.sleep(nanoseconds:10_000_000) }
+    XCTAssertEqual(endpoint.bridge.consent?.operation,"access.inbox")
+    endpoint.bridge.resolve(true)
+    for _ in 0..<300 { if !endpoint.editor.busy { break }; try await Task.sleep(nanoseconds:10_000_000) }
+    for _ in 0..<10 { await Task.yield() }
+    XCTAssertEqual(endpoint.editor.state,.idle)
+    XCTAssertNil(endpoint.editor.error)
+    XCTAssertNil(endpoint.error)
+    XCTAssertTrue(endpoint.loaded)
+    XCTAssertEqual(aggregate.requests.map { $0.raw["request_id"] as? String }, [String(repeating:"f",count:32)])
+    XCTAssertTrue(aggregate.complete)
+    XCTAssertEqual(preparedIDs.count,2)
+    XCTAssertEqual(Set(preparedIDs).count,1,"Resume must retain the original action ID")
+    XCTAssertEqual(executions,1,"State reconciliation must not submit another action")
+    XCTAssertNil(try endpoint.bridge.retainedNativeAction())
+  }
+  @MainActor private func retainedEndpoint(_ root: URL, resource: RegisteredResource,
+    after: String? = nil, actionName: String = "inbox", dispatched: Bool = false
+  ) throws -> (ServiceInboxEndpoint, OperatorJournal, Data) {
+    let wallet = try WalletRepository(directory:root.appendingPathComponent("wallet"))
+    let directory = root.appendingPathComponent("actions")
+    let journal = try OperatorJournal(directory:directory, origin:resource.id)
+    var action: [String:Any] = ["schema":"devgraph.access-operator-action.v1", "action":actionName,
+      "action_id":String(repeating:"c",count:32)]
+    if let after { action["after_id"] = after }
+    let data = try GrantJSON.data(["schema":"devgraph.operator-pending.v1", "origin":resource.id,
+      "identity":["subject_public_key":String(repeating:"a",count:64), "installation_id":String(repeating:"b",count:32)],
+      "action":action, "assignment_digest":NSNull(), "dispatched":dispatched])
+    try journal.save(data)
+    let endpoint = ServiceInboxEndpoint(resource:resource, repository:wallet, journalDirectory:directory,
+      exchange:{ _,_ in XCTFail("Reconciliation must not send or sign"); throw NativeGrantError.invalid })
+    return (endpoint,journal,data)
+  }
+  @MainActor func testRetainedPageCompletionPreservesEarlierRowsAndDeduplicatesOverlap() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:root) }
+    let resource = try resource("fixture.example"), cursor = String(repeating:"a",count:32)
+    let (endpoint,journal,record) = try retainedEndpoint(root,resource:resource,after:cursor)
+    defer { endpoint.bridge.cancel() }
+    try endpoint.snapshot.accept(NativeOperatorInbox(inbox(resource,requests:[request()],total:2,next:cursor),resource:resource),authority:resource.id,append:false)
+    await endpoint.load()
+    try journal.clear(matching:record) // Synthetic verified completion boundary.
+    endpoint.editor.inbox = try NativeOperatorInbox(inbox(resource,requests:[request(),request("f")],total:2),resource:resource)
+    endpoint.editor.state = .idle
+    for _ in 0..<10 { await Task.yield() }
+    XCTAssertNil(endpoint.error); XCTAssertTrue(endpoint.loaded)
+    XCTAssertNil(endpoint.snapshot.next)
+    XCTAssertEqual(endpoint.snapshot.requests.map { $0.raw["request_id"] as? String },
+      [String(repeating:"a",count:32),String(repeating:"f",count:32)])
+    XCTAssertEqual(endpoint.snapshot.total,2)
+  }
+  @MainActor func testRetainedTailWithoutItsEarlierPageCannotClaimCompleteCoverage() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:root) }
+    let resource = try resource("fixture.example")
+    let (endpoint,journal,record) = try retainedEndpoint(root,resource:resource,after:String(repeating:"a",count:32))
+    defer { endpoint.bridge.cancel() }
+    await endpoint.load(); try journal.clear(matching:record)
+    endpoint.editor.inbox = try NativeOperatorInbox(inbox(resource,requests:[request("f")],total:2),resource:resource)
+    endpoint.editor.state = .idle
+    for _ in 0..<10 { await Task.yield() }
+    XCTAssertFalse(endpoint.loaded); XCTAssertTrue(endpoint.snapshot.requests.isEmpty)
+    XCTAssertEqual(endpoint.error,"The original page was checked. Review the inbox again to load all pages.")
+  }
+  @MainActor func testRetainedPageWithChangedRowsKeepsPreviousSnapshotIncomplete() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:root) }
+    let resource = try resource("fixture.example"), cursor = String(repeating:"a",count:32)
+    let (endpoint,journal,record) = try retainedEndpoint(root,resource:resource,after:cursor)
+    defer { endpoint.bridge.cancel() }
+    try endpoint.snapshot.accept(NativeOperatorInbox(inbox(resource,requests:[request()],total:2,next:cursor),resource:resource),authority:resource.id,append:false)
+    await endpoint.load(); try journal.clear(matching:record)
+    endpoint.editor.inbox = try NativeOperatorInbox(inbox(resource,requests:[request(version:2)],total:2),resource:resource)
+    endpoint.editor.state = .idle
+    for _ in 0..<10 { await Task.yield() }
+    XCTAssertFalse(endpoint.loaded); XCTAssertNotNil(endpoint.error)
+    XCTAssertEqual(endpoint.snapshot.requests.first?.raw["version"] as? Int,1)
+    XCTAssertEqual(endpoint.snapshot.next,cursor)
+  }
+  @MainActor func testRetainedPageCannotAppendToADifferentPriorCursor() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:root) }
+    let resource = try resource("fixture.example")
+    let (endpoint,journal,record) = try retainedEndpoint(root,resource:resource,after:String(repeating:"a",count:32))
+    defer { endpoint.bridge.cancel() }
+    let previous = String(repeating:"b",count:32)
+    try endpoint.snapshot.accept(NativeOperatorInbox(inbox(resource,requests:[request()],total:2,next:previous),resource:resource),authority:resource.id,append:false)
+    await endpoint.load(); try journal.clear(matching:record)
+    endpoint.editor.inbox = try NativeOperatorInbox(inbox(resource,requests:[request("f")],total:2),resource:resource)
+    endpoint.editor.state = .idle
+    for _ in 0..<10 { await Task.yield() }
+    XCTAssertFalse(endpoint.loaded)
+    XCTAssertEqual(endpoint.snapshot.next,previous)
+    XCTAssertEqual(endpoint.snapshot.requests.map { $0.raw["request_id"] as? String },[String(repeating:"a",count:32)])
+    XCTAssertEqual(endpoint.error,"The original page was checked. Review the inbox again to load all pages.")
+  }
+  @MainActor func testPreparedMutationAndUnknownOutcomeAreNeverClearedByAnInboxPublication() async throws {
+    for dispatched in [false,true] {
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      defer { try? FileManager.default.removeItem(at:root) }
+      let resource = try resource("fixture.example")
+      let (endpoint,journal,record) = try retainedEndpoint(root,resource:resource,actionName:"approve",dispatched:dispatched)
+      defer { endpoint.bridge.cancel() }
+      await endpoint.load()
+      let originalError = endpoint.error
+      endpoint.editor.inbox = try NativeOperatorInbox(inbox(resource,requests:[]),resource:resource)
+      for _ in 0..<10 { await Task.yield() }
+      XCTAssertEqual(endpoint.editor.state,dispatched ? .unknown : .prepared)
+      XCTAssertEqual(try journal.load(),record)
+      XCTAssertEqual(endpoint.error,originalError); XCTAssertFalse(endpoint.loaded)
+    }
+  }
+  @MainActor func testVerifiedInboxCompletionDoesNotEraseEditorOrBridgeFailures() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at:root) }
+    let resource = try resource("fixture.example")
+    let (endpoint,journal,record) = try retainedEndpoint(root,resource:resource)
+    defer { endpoint.bridge.cancel() }
+    await endpoint.load(); try journal.clear(matching:record)
+    endpoint.editor.error = "Separate editor failure"
+    endpoint.bridge.failure = "Separate bridge failure"
+    endpoint.editor.inbox = try NativeOperatorInbox(inbox(resource,requests:[]),resource:resource)
+    endpoint.editor.state = .idle
+    for _ in 0..<10 { await Task.yield() }
+    XCTAssertNil(endpoint.error); XCTAssertTrue(endpoint.loaded)
+    XCTAssertEqual(endpoint.editor.error,"Separate editor failure")
+    XCTAssertEqual(endpoint.bridge.failure,"Separate bridge failure")
   }
   func testCanonicalAliasesCollapseButLegacyStoresAndOriginalJournalsRemainVisible() throws {
     let key = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 1, count: 32))
