@@ -41,6 +41,8 @@ public struct RestorePreview: Decodable, Sendable, Identifiable {
   public let chainAccounts: PublicAccounts?
   public let walletIdentities: WalletIdentitySection?
   public let importedWalletIdentities: Int?
+  public let importedFeedSubscriptions: Int?
+  public let importedFeedCollections: Int?
   public let memberships: PortableSections?
   public let replacesProfile: Bool?
   public let replacedProofs: [String]?
@@ -49,6 +51,8 @@ public struct RestorePreview: Decodable, Sendable, Identifiable {
     case chainAccounts = "chain_accounts"
     case walletIdentities = "wallet_identities"
     case importedWalletIdentities = "imported_wallet_identities"
+    case importedFeedSubscriptions = "imported_feed_subscriptions"
+    case importedFeedCollections = "imported_feed_collections"
     case replacesProfile = "replaces_profile"
     case replacedProofs = "replaced_proofs"
     case holderGrants = "holder_grants"

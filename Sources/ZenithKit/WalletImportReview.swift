@@ -4,7 +4,7 @@ import Foundation
 /// this exact token; a synthesized/merged identity section is not file provenance.
 /// Core still owns authentication, revision checks, cancellation and commit.
 public struct WalletImportReview: Identifiable, Sendable {
-  public enum DataVersion: Sendable { case v1, v2 }
+  public enum DataVersion: Sendable { case v1, v2, v3 }
   public enum Context: Equatable, Sendable {
     case recovery, olderRecoveryKey
     case castaway(DataVersion), recoveryAndCastaway(DataVersion)
@@ -12,7 +12,12 @@ public struct WalletImportReview: Identifiable, Sendable {
     public static func dataFile(_ file: Data, recovering: Bool) throws -> Self {
       let format = try RecoveryFileFormat.inspect(file, filename: "data.castaway")
       guard format.kind == .castaway else { throw RecoveryTransferError.invalidFile }
-      let version: DataVersion = format.version == "v2" ? .v2 : .v1
+      let version: DataVersion
+      switch format.version {
+      case "v3": version = .v3
+      case "v2": version = .v2
+      default: version = .v1
+      }
       return recovering ? .recoveryAndCastaway(version) : .castaway(version)
     }
     fileprivate var dataVersion: DataVersion? {
@@ -44,7 +49,8 @@ public struct WalletImportReview: Identifiable, Sendable {
   public var replacesProfile: Bool { hasCastawayData && preview.replacesProfile == true }
   public var replacedProofCount: Int { hasCastawayData ? preview.replacedProofs?.count ?? 0 : 0 }
   public var savedIdentities: WalletIdentitySection? {
-    context.dataVersion == .v2 ? preview.walletIdentities : nil
+    guard let version = context.dataVersion, version != .v1 else { return nil }
+    return preview.walletIdentities
   }
   public var identityImportNote: String? {
     guard let version = context.dataVersion else { return nil }
@@ -53,5 +59,30 @@ public struct WalletImportReview: Identifiable, Sendable {
     }
     let count = preview.importedWalletIdentities ?? preview.walletIdentities?.accounts.count ?? 0
     return "This file contains \(count) saved account identities. Existing nonconflicting identities are preserved; the review shows the result after import."
+  }
+  public var feedsAfterImport: PortableFeedSection? {
+    hasCastawayData ? preview.memberships?.feeds : nil
+  }
+  // Counters describe the incoming file, never the merged section above. An
+  // older file cannot acquire incoming provenance from preserved local data.
+  public var importedFeedSubscriptions: Int? {
+    context.dataVersion == .v3 ? preview.importedFeedSubscriptions : nil
+  }
+  public var importedFeedCollections: Int? {
+    context.dataVersion == .v3 ? preview.importedFeedCollections : nil
+  }
+  public var feedImportNote: String? {
+    guard feedsAfterImport != nil else { return nil }
+    guard context.dataVersion == .v3 else {
+      return "This older Castaway file has no feeds. Existing feed subscriptions and collections are preserved."
+    }
+    guard let subscriptions = importedFeedSubscriptions, let collections = importedFeedCollections else {
+      return "This file contains feed configuration. Existing nonconflicting feeds are preserved; the review shows the result after import."
+    }
+    return "This file contains \(subscriptions) feed subscription(s) and \(collections) collection(s). Existing nonconflicting feeds are preserved; the review shows the result after import."
+  }
+  public var feedActivationNote: String? {
+    guard feedsAfterImport != nil else { return nil }
+    return "Feed configuration is saved only. Importing does not fetch content, sign in to a provider, activate subscriptions or grant access."
   }
 }

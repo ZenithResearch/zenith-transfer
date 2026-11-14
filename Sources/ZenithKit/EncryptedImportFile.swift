@@ -67,9 +67,9 @@ public enum EncryptedImportFile {
     if schema == "castalia.wallet-custody.v1" {
       keys = ["schema", "keySuite", "publicKey", "createdAt", "kdf", "aead", "ciphertext"]
       guard value["keySuite"] as? String == "Ed25519" else { throw RecoveryTransferError.invalidFile }
-    } else if schema == "castalia.castaway.v1" || schema == "castalia.castaway.v2" {
+    } else if ["castalia.castaway.v1", "castalia.castaway.v2", "castalia.castaway.v3"].contains(schema) {
       keys = ["schema", "contentsSchema", "ownerPublicKey", "exportedAt", "kdf", "aead", "ciphertext"]
-      let expectedContents = schema == "castalia.castaway.v2" ? "castalia.castaway-contents.v2" : "castalia.castaway-contents.v1"
+      let expectedContents = schema.replacingOccurrences(of: "castaway.", with: "castaway-contents.")
       guard value["contentsSchema"] as? String == expectedContents else {
         throw RecoveryTransferError.invalidFile
       }

@@ -12,6 +12,16 @@ public enum WalletFailure: Error, Equatable, LocalizedError {
     case .invalidFile: return "This file could not be read. Choose an encrypted recovery file."
     case .core(let code):
       switch code {
+      case "feed_conflict":
+        return "A feed conflicts with a saved record. Nothing was overwritten; review the subscriptions and collections separately."
+      case "feed_writer_not_qualified":
+        return "This version cannot export feed configuration yet. Keep the original data file. Your saved wallet is unchanged."
+      case "feed_limit":
+        return "Feed configuration supports up to 256 subscriptions, 64 collections and 16 collection references per subscription. Nothing was saved."
+      case "feeds_too_large":
+        return "The combined feed configuration exceeds the 256 KiB limit. Nothing was saved."
+      case "file_too_large":
+        return "This change would exceed the 1 MiB Castaway file limit. Nothing was saved."
       case "identity_conflict", "duplicate_or_invalid_identity":
         return "An identity conflicts with a saved record. Nothing was overwritten; review the records separately."
       case "invalid_wallet_identities", "unsupported_identity_fields", "invalid_identity_text", "invalid_provider_identity", "identities_too_large", "identity_limit":

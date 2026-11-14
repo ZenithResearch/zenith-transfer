@@ -1,0 +1,47 @@
+{
+  "schema": "castalia.native-feed-development-evidence.v1",
+  "date": "2026-11-14",
+  "wallet_revision": "d688a3859a3fdc602c545790fd7065f9725435de",
+  "source_digest": "90d4b31527bc472deda587ea985774334112b421a75af9bc20fce8e19b405b28",
+  "artifact_libraries": {
+    "transfer": {
+      "CastaliaWallet.xcframework/macos-arm64/libcastalia_wallet_native.a": "5b6aaf7b2a368b21cd982793f1b06875fd69012318f1bc5eecdcbc0cf952a137"
+    },
+    "ios": {
+      "CastaliaWallet.xcframework/ios-arm64/libcastalia_wallet_native.a": "abc375d270c54364878b30f6a838286697bf6e5aff92bb9abb17feaed607bbb6",
+      "CastaliaWallet.xcframework/ios-arm64-simulator/libcastalia_wallet_native.a": "8bbd37c822c9bc76eeda98dc0dd582dd4596082cda21ca9688f43b64ef69e61a",
+      "CastaliaWallet.xcframework/macos-arm64/libcastalia_wallet_native.a": "5b6aaf7b2a368b21cd982793f1b06875fd69012318f1bc5eecdcbc0cf952a137"
+    }
+  },
+  "shared_files_sha256": {
+    "Sources/ZenithKit/EncryptedImportFile.swift": "02e644a7cc43da36828196cd995d0c591651da5e4db19cd5c3882ffcf93631a6",
+    "Sources/ZenithKit/RecoveryFileCatalog.swift": "f5768013b779b6815d599025f99f7526085204e6f59667a101ff18fe7e29b072",
+    "Sources/ZenithKit/PortableSummary.swift": "c451d2119f7294075ffaff240bcf0ff4614c90ed87e45286b8720a80e5cb1029",
+    "Sources/ZenithKit/WalletSession.swift": "4e5e15e04ecd826855a4d27493b99a50ff5ba44dd601958786c44031f1e467c7",
+    "Sources/ZenithKit/WalletImportReview.swift": "7ff845a981b58f657063b4ea2dcfe76ded78d63a8c0ce77cfbf85cac1559858d",
+    "Sources/ZenithKit/WalletImportReviewContent.swift": "aa666ad39c74484228d15d8c24e613afd306d499e8ff73b3341339678e82fa55",
+    "Sources/ZenithKit/WalletFailure.swift": "42e498d1c2cc67ccca44b72226c3dabe4706926e6b15662b7e8313dee6275d56",
+    "Tests/ZenithKitTests/PortableFeedReviewTests.swift": "7722a195f4244d8715bb8e31a89a8516ac2ab4dd0a8f58d8036811a872d67f13",
+    "Tests/ZenithKitTests/PortableFeedIntegrationTests.swift": "29b52f20fea9f78abcfcd1ea1279a9a7b6c860d519dbe532cc372f6e83ffe904",
+    "Tests/ZenithKitTests/Fixtures/feeds-v1.json": "eff3c3c4b15743661c2628d504052211f54c0ec2ab220d6d1d103218569c0ec2",
+    "Tests/ZenithKitTests/Fixtures/feeds-encrypted-v3.json": "1f2819bdc1ca2dfc403c5c7f9edbe9ee3f59dfe7126756cd85737ce366db93ce",
+    "scripts/check-wallet-experience-parity.py": "e2367b3866ccf26e73866d32cc32a6071f69cd9d069e84b5c7ef95f7580f4aa1"
+  },
+  "checks": {
+    "native_encrypted_feed_integration_tests": 4,
+    "focused_feed_review_and_integration_tests": 13,
+    "full_transfer_swiftpm": {
+      "passed": 416,
+      "opt_in_skipped": 20,
+      "failed": 0
+    },
+    "source_and_binary_manifest_verification": "passed",
+    "changed_shared_bytes": "identical"
+  },
+  "limits": [
+    "macOS SwiftPM domain tests only; no iOS UI/runtime pass inferred",
+    "No app packaging, installation or physical device operation",
+    "v3 portable writer remains gated",
+    "Existing unrelated whole-repository parity drift preserved"
+  ]
+}
