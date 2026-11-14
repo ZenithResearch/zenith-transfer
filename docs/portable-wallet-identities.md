@@ -28,6 +28,13 @@ No transaction signing, new key derivation scheme or funding workflow is added.
 
 ## Explicit legacy migration
 
+The staged [feed reader source](castaway-feeds.md) additionally recognizes v3
+for public-envelope admission and review. Its Rust contract requires feeds and
+permits saved identities; v2 still requires saved identities. This source work
+pins and rebuilds the development native binary described there; macOS domain
+import/storage tests pass. Packaged app and iOS runtime qualification remain
+separate, and v3 portable export is still refused.
+
 Choose Review existing records for Wallet. The preview copies only saved
 Matrix/Nostr descriptors associated with the current Wallet, preserving UUIDs
 and exact stored fields. The proposed full section is reviewed before Confirm

@@ -52,18 +52,52 @@ public struct WalletImportReviewContent: View {
           }
         }
         if let section = review.savedIdentities {
-          DisclosureGroup("Saved account identities (\(section.accounts.count))") {
+          DisclosureGroup("Saved account identities after import (\(section.accounts.count))") {
             if section.accounts.isEmpty { Text("No saved account identities after import.").foregroundStyle(.secondary) }
             else { WalletIdentityReviewRows(section: section, showsHeading: false) }
           }
         }
         if let note = review.identityImportNote { Text(note).font(.footnote).foregroundStyle(.secondary) }
+        if let section = review.feedsAfterImport {
+          if let note = review.feedImportNote { Text(note).font(.footnote).foregroundStyle(.secondary) }
+          feedSubscriptions(section)
+          DisclosureGroup("Feed collections after import (\(section.collections.count))") {
+            if section.collections.isEmpty { Text("No saved feed collections after import.").foregroundStyle(.secondary) }
+            ForEach(section.collections) { collection in
+              VStack(alignment: .leading, spacing: 4) {
+                Text(collection.reviewTitle)
+                Text(collection.id).font(.caption.monospaced())
+              }.textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
+            }
+          }
+          if let note = review.feedActivationNote { Text(note).font(.footnote).foregroundStyle(.secondary) }
+        }
         if !review.savedAccounts.isEmpty { accounts(review.savedAccounts, title: "Saved account descriptors") }
       } else {
-        Text("Saved account identities, profile and membership proofs are backed up separately in Castaway data. You can import that file after recovering your Wallet.")
+        Text("Saved account identities, profile, membership proofs and feed configuration are backed up separately in Castaway data. You can import that file after recovering your Wallet.")
           .font(.footnote).foregroundStyle(.secondary)
       }
     }.frame(maxWidth: .infinity, alignment: .leading)
+  }
+  private func feedSubscriptions(_ section: PortableFeedSection) -> some View {
+    DisclosureGroup("Feed subscriptions after import (\(section.subscriptions.count))") {
+      if section.subscriptions.isEmpty { Text("No saved feed subscriptions after import.").foregroundStyle(.secondary) }
+      ForEach(section.subscriptions) { subscription in
+        VStack(alignment: .leading, spacing: 4) {
+          Text(subscription.reviewTitle)
+          // Text is deliberately inert: review neither opens URLs nor fetches.
+          Text(subscription.url).font(.caption.monospaced())
+          Text("Format: \(subscription.format) · Saved preference: \(subscription.enabled ? "enabled" : "disabled")")
+            .font(.caption).foregroundStyle(.secondary)
+          Text("Saved disclosure: \(subscription.disclosure)").font(.caption).foregroundStyle(.secondary)
+          if !subscription.collectionIds.isEmpty {
+            Text("Collections: " + subscription.collectionIds.map { id in
+              section.collections.first(where: { $0.id == id })?.reviewTitle ?? id
+            }.joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
+          }
+        }.textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
+      }
+    }
   }
   private var publicKey: some View {
     DisclosureGroup("Wallet public key") {
